@@ -129,3 +129,5 @@ so `./bin/nit-ruby` should run the ruby implementation, etc.
 
 Any scripts for benchmarking or housekeeping should into ./scripts. We can assume hyperfine is installed, and should use it!
 
+We use `mise` for installing tools and dependencies.
+
