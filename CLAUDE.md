@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./rust/          # Rust implementation
 ./ruby/          # Ruby implementation
 ./bin/           # Wrapper scripts (nit-rust, nit-ruby, etc.)
-./scripts/       # Benchmarking and housekeeping scripts
+./script/       # Benchmarking and housekeeping scripts
 ```
 
 All binaries should be runnable via `./bin/nit-<language>`.
