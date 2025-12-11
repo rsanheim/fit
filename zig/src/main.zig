@@ -1,0 +1,214 @@
+const std = @import("std");
+const repo = @import("repo.zig");
+const runner = @import("runner.zig");
+const pull = @import("commands/pull.zig");
+const fetch = @import("commands/fetch.zig");
+const status = @import("commands/status.zig");
+const passthrough = @import("commands/passthrough.zig");
+
+const VERSION = "0.1.0";
+const DEFAULT_WORKERS: usize = 8;
+
+const Command = enum {
+    pull,
+    fetch,
+    status,
+    help,
+    version,
+    external,
+};
+
+const ParsedArgs = struct {
+    workers: usize,
+    dry_run: bool,
+    command: Command,
+    extra_args: []const []const u8,
+};
+
+fn printHelp() void {
+    const help =
+        \\nit - parallel git across many repositories
+        \\
+        \\USAGE:
+        \\    nit [OPTIONS] <COMMAND> [ARGS...]
+        \\
+        \\OPTIONS:
+        \\    -n, --workers <NUM>   Number of parallel workers (default: 8)
+        \\    --dry-run             Print exact commands without executing
+        \\    -h, --help            Print help information
+        \\    -V, --version         Print version
+        \\
+        \\COMMANDS:
+        \\    pull      Git pull with condensed output
+        \\    fetch     Git fetch with condensed output
+        \\    status    Git status with condensed output
+        \\    <any>     Pass-through to git verbatim
+        \\
+        \\EXAMPLES:
+        \\    nit pull                      Pull all repos
+        \\    nit status                    Status of all repos
+        \\    nit --dry-run pull            Show commands without executing
+        \\    nit -n 4 fetch                Fetch with 4 workers
+        \\    nit checkout main             Switch all repos to main
+        \\
+    ;
+    const stdout = std.fs.File.stdout();
+    stdout.writeAll(help) catch {};
+}
+
+fn printVersion() void {
+    const stdout = std.fs.File.stdout();
+    var buf: [64]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "nit {s}\n", .{VERSION}) catch return;
+    stdout.writeAll(msg) catch {};
+}
+
+fn parseArgs(allocator: std.mem.Allocator) !ParsedArgs {
+    var args_iter = try std.process.argsWithAllocator(allocator);
+    defer args_iter.deinit();
+
+    // Skip program name
+    _ = args_iter.next();
+
+    var workers: usize = DEFAULT_WORKERS;
+    var dry_run: bool = false;
+    var command: ?Command = null;
+    var extra_args: std.ArrayList([]const u8) = .empty;
+    errdefer extra_args.deinit(allocator);
+
+    var found_command = false;
+
+    while (args_iter.next()) |arg| {
+        if (found_command) {
+            // After command, everything is extra args
+            const owned = try allocator.dupe(u8, arg);
+            try extra_args.append(allocator, owned);
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            return .{
+                .workers = workers,
+                .dry_run = dry_run,
+                .command = .help,
+                .extra_args = try extra_args.toOwnedSlice(allocator),
+            };
+        }
+
+        if (std.mem.eql(u8, arg, "-V") or std.mem.eql(u8, arg, "--version")) {
+            return .{
+                .workers = workers,
+                .dry_run = dry_run,
+                .command = .version,
+                .extra_args = try extra_args.toOwnedSlice(allocator),
+            };
+        }
+
+        if (std.mem.eql(u8, arg, "--dry-run")) {
+            dry_run = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "-n") or std.mem.eql(u8, arg, "--workers")) {
+            if (args_iter.next()) |num_str| {
+                workers = std.fmt.parseInt(usize, num_str, 10) catch DEFAULT_WORKERS;
+            }
+            continue;
+        }
+
+        // Check if it's a -n<NUM> combined form
+        if (std.mem.startsWith(u8, arg, "-n")) {
+            const num_str = arg[2..];
+            if (num_str.len > 0) {
+                workers = std.fmt.parseInt(usize, num_str, 10) catch DEFAULT_WORKERS;
+            }
+            continue;
+        }
+
+        // This must be the command
+        found_command = true;
+
+        if (std.mem.eql(u8, arg, "pull")) {
+            command = .pull;
+        } else if (std.mem.eql(u8, arg, "fetch")) {
+            command = .fetch;
+        } else if (std.mem.eql(u8, arg, "status")) {
+            command = .status;
+        } else {
+            // External command - add it as first extra arg
+            command = .external;
+            const owned = try allocator.dupe(u8, arg);
+            try extra_args.append(allocator, owned);
+        }
+    }
+
+    return .{
+        .workers = workers,
+        .dry_run = dry_run,
+        .command = command orelse .help,
+        .extra_args = try extra_args.toOwnedSlice(allocator),
+    };
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const args = try parseArgs(allocator);
+    defer allocator.free(args.extra_args);
+
+    // Handle help and version early
+    if (args.command == .help) {
+        printHelp();
+        return;
+    }
+
+    if (args.command == .version) {
+        printVersion();
+        return;
+    }
+
+    // Find git repos
+    const repos = try repo.findGitRepos(allocator);
+    defer {
+        for (repos) |r| {
+            allocator.free(r);
+        }
+        allocator.free(repos);
+    }
+
+    if (repos.len == 0) {
+        std.fs.File.stdout().writeAll("No git repositories found in current directory\n") catch {};
+        return;
+    }
+
+    const ctx = runner.ExecutionContext.init(args.workers, args.dry_run);
+
+    // Print dry-run header if applicable
+    if (args.dry_run) {
+        const stdout = std.fs.File.stdout();
+        var buf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "[nit v{s}] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.\n", .{VERSION}) catch return;
+        stdout.writeAll(msg) catch {};
+    }
+
+    // Dispatch to command handler
+    switch (args.command) {
+        .pull => try pull.run(allocator, &ctx, repos, args.extra_args),
+        .fetch => try fetch.run(allocator, &ctx, repos, args.extra_args),
+        .status => try status.run(allocator, &ctx, repos, args.extra_args),
+        .external => try passthrough.run(allocator, &ctx, repos, args.extra_args),
+        .help, .version => unreachable,
+    }
+}
+
+test "parseArgs with pull" {
+    // Basic test structure - would need proper test setup
+}
+
+test {
+    // Run all module tests
+    _ = @import("repo.zig");
+    _ = @import("runner.zig");
+}

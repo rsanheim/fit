@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NIT_RUST="${SCRIPT_DIR}/../bin/nit-rust"
-
-hyperfine \
-  --warmup 2 \
-  --min-runs 5 \
-  -L workers 1,2,4,8,12,16,0 \
-  "$NIT_RUST -n {workers} status"
+# Legacy script - delegates to bench-scaling for backward compatibility
+# For new usage, prefer:
+#   bench-all       - head-to-head comparison of all implementations
+#   bench-scaling   - worker scaling for single implementation
+#   bench-suite     - full benchmark suite with markdown output
+exec "$(dirname "$0")/bench-scaling" rust status "${1:-1,2,4,8,12,16}"

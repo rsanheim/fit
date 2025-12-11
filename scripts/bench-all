@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="${SCRIPT_DIR}/../bin"
+
+# Auto-discover implementations
+IMPLEMENTATIONS=()
+for impl in "${BIN_DIR}"/nit-*; do
+    [[ -x "$impl" ]] && IMPLEMENTATIONS+=("$impl")
+done
+
+if [[ ${#IMPLEMENTATIONS[@]} -eq 0 ]]; then
+    echo "No implementations found in ${BIN_DIR}"
+    exit 1
+fi
+
+CMD="${1:-status}"
+WORKERS="${2:-8}"
+
+echo "=== Benchmarking: nit $CMD (workers=$WORKERS) ==="
+echo "Implementations: ${IMPLEMENTATIONS[*]}"
+echo
+
+# Build hyperfine command with all implementations
+CMDS=()
+for impl in "${IMPLEMENTATIONS[@]}"; do
+    name=$(basename "$impl")
+    CMDS+=("-n" "$name" "$impl -n $WORKERS $CMD")
+done
+
+hyperfine --warmup 2 --min-runs 5 "${CMDS[@]}"

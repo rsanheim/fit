@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="${SCRIPT_DIR}/../bin"
+
+IMPL="${1:-rust}"
+CMD="${2:-status}"
+WORKERS="${3:-1,2,4,8,12,16}"
+
+NIT="${BIN_DIR}/nit-${IMPL}"
+
+if [[ ! -x "$NIT" ]]; then
+    echo "Implementation not found: $NIT"
+    echo "Available: $(ls "${BIN_DIR}"/nit-* 2>/dev/null | xargs -n1 basename | sed 's/nit-//' | tr '\n' ' ')"
+    exit 1
+fi
+
+echo "=== Worker Scaling: nit-${IMPL} $CMD ==="
+echo "Workers: $WORKERS"
+echo
+
+hyperfine \
+    --warmup 2 \
+    --min-runs 5 \
+    -L workers "$WORKERS" \
+    "$NIT -n {workers} $CMD"
