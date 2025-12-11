@@ -256,20 +256,43 @@ Paths are canonicalized when added via `knit roots add`.
 
 ### Binary Structure
 
-Single binary with symlink detection:
+Single binary with symlink detection. The binary inspects `argv[0]` to determine
+which mode to run in:
 
 ```
 nit (main binary)
 knit -> nit (symlink)
 ```
 
-Binary detects invocation name (`argv[0]`) to determine mode.
+**Detection logic** (works across all implementations):
+
+```
+basename = get_basename(argv[0])  # strip path, get "nit" or "knit"
+if basename contains "knit":
+    mode = KNIT (roots-based)
+else:
+    mode = NIT (CWD-based)
+```
+
+This approach works for:
+* Direct invocation: `./nit`, `./knit`
+* Symlinks: `knit -> nit`
+* Full paths: `/usr/local/bin/knit`
+* Wrapper scripts named appropriately
 
 ### Wrapper Scripts
 
+Development wrappers in `./bin/` follow the same pattern:
+
 ```
-./bin/nit-rust    → runs Rust implementation
-./bin/knit-rust   → symlink to nit-rust
-./bin/nit-zig     → runs Zig implementation
-./bin/knit-zig    → symlink to nit-zig
+./bin/nit-rust     → runs Rust implementation
+./bin/knit-rust    → symlink to nit-rust (or wrapper that invokes nit-rust)
+
+./bin/nit-zig      → runs Zig implementation
+./bin/knit-zig     → symlink to nit-zig
+
+./bin/nit-ruby     → runs Ruby implementation
+./bin/knit-ruby    → symlink to nit-ruby
 ```
+
+The underlying binary/script detects its invocation name and behaves accordingly.
