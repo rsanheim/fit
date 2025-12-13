@@ -7,7 +7,7 @@ mod runner;
 
 use commands::{fetch, passthrough, pull, status};
 use repo::find_git_repos;
-use runner::ExecutionContext;
+use runner::{ExecutionContext, UrlScheme};
 
 #[derive(Parser)]
 #[command(name = "nit", version, about = "parallel git across many repositories")]
@@ -15,6 +15,14 @@ struct Cli {
     /// Print exact commands without executing
     #[arg(long)]
     dry_run: bool,
+
+    /// Force SSH URLs (git@github.com:) for all remotes
+    #[arg(long, conflicts_with = "https")]
+    ssh: bool,
+
+    /// Force HTTPS URLs (https://github.com/) for all remotes
+    #[arg(long, conflicts_with = "ssh")]
+    https: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -54,7 +62,15 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let ctx = ExecutionContext::new(cli.dry_run);
+    let url_scheme = if cli.ssh {
+        Some(UrlScheme::Ssh)
+    } else if cli.https {
+        Some(UrlScheme::Https)
+    } else {
+        None
+    };
+
+    let ctx = ExecutionContext::new(cli.dry_run, url_scheme);
 
     if cli.dry_run {
         println!(
