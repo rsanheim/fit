@@ -37,11 +37,10 @@ Dry-run output must be generated as close to actual execution as possible (same 
 Use `git -C <repo-path>` for directory switching. Research and benchmark against `--git-dir` for performance.
 
 ### Parallel execution
-Use `--workers|-n` flag to control parallelism (defaults to auto-detect CPUs).
+Spawn all git processes immediately (non-blocking), then collect results. This maximizes parallelism by letting the OS handle process scheduling rather than limiting to a thread pool.
 
 ## Global CLI Options
 
 ```
---workers int, -n int    Number of parallel workers (default: auto-detect CPUs)
 --dry-run                Print exact commands without executing
 ```
