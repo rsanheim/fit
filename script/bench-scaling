@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
-set -euo pipefail
+source "$(dirname "$0")/lib.sh"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN_DIR="${SCRIPT_DIR}/../bin"
+[[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && {
+    show_help "bench-scaling" "Test how performance scales with worker count" \
+        "bench-scaling [IMPL] [COMMAND] [WORKERS]
+
+Arguments:
+  IMPL      Implementation to test (default: rust)
+  COMMAND   Git command to benchmark (default: status)
+  WORKERS   Comma-separated worker counts (default: 1,2,4,8,12,16)
+
+Examples:
+  bench-scaling                        # test rust status scaling
+  bench-scaling rust fetch 1,2,4,8     # test fetch with specific workers"
+    exit 0
+}
 
 IMPL="${1:-rust}"
 CMD="${2:-status}"
@@ -12,7 +24,7 @@ NIT="${BIN_DIR}/nit-${IMPL}"
 
 if [[ ! -x "$NIT" ]]; then
     echo "Implementation not found: $NIT"
-    echo "Available: $(ls "${BIN_DIR}"/nit-* 2>/dev/null | xargs -n1 basename | sed 's/nit-//' | tr '\n' ' ')"
+    echo "Available: $(discover_impl_names | tr '\n' ' ')"
     exit 1
 fi
 
@@ -21,7 +33,7 @@ echo "Workers: $WORKERS"
 echo
 
 hyperfine \
-    --warmup 2 \
-    --min-runs 5 \
+    --warmup $WARMUP \
+    --min-runs $MIN_RUNS \
     -L workers "$WORKERS" \
     "$NIT -n {workers} $CMD"

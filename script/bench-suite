@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
+source "$(dirname "$0")/lib.sh"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN_DIR="${SCRIPT_DIR}/../bin"
+[[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && {
+    show_help "bench-suite" "Run full benchmark suite with markdown output" \
+        "bench-suite
+
+Runs head-to-head comparisons and scaling tests for all implementations.
+Output is markdown-formatted, suitable for piping to a file:
+
+  bench-suite > docs/benchmark-results.md"
+    exit 0
+}
 
 echo "# Benchmark Results - $(date '+%Y-%m-%d')"
 echo
@@ -10,15 +18,7 @@ echo "## Environment"
 echo
 echo "* $(uname -s) $(uname -r)"
 echo "* $(sysctl -n hw.ncpu 2>/dev/null || nproc) CPU cores"
-echo
-
-# Discover available implementations
-IMPLS=()
-for impl in "${BIN_DIR}"/nit-*; do
-    [[ -x "$impl" ]] && IMPLS+=("$(basename "$impl" | sed 's/nit-//')")
-done
-
-echo "* Implementations: ${IMPLS[*]}"
+echo "* Implementations: $(discover_impl_names | tr '\n' ' ')"
 echo
 
 for cmd in status fetch; do
@@ -32,7 +32,7 @@ done
 
 echo "## Worker Scaling (status)"
 echo
-for impl in "${IMPLS[@]}"; do
+for impl in $(discover_impl_names); do
     echo "### nit-${impl}"
     echo
     echo '```'
