@@ -31,7 +31,10 @@ impl OutputFormatter for PullFormatter {
         }
 
         // Check for fast-forward or merge info in stdout
-        if let Some(line) = stdout.lines().find(|l| l.contains("..") || l.contains("Updating")) {
+        if let Some(line) = stdout
+            .lines()
+            .find(|l| l.contains("..") || l.contains("Updating"))
+        {
             return line.trim().to_string();
         }
 

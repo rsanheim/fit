@@ -1,7 +1,277 @@
 #!/usr/bin/env bash
-# Legacy script - delegates to bench-scaling for backward compatibility
-# For new usage, prefer:
-#   bench-all       - head-to-head comparison of all implementations
-#   bench-scaling   - worker scaling for single implementation
-#   bench-suite     - full benchmark suite with markdown output
-exec "$(dirname "$0")/bench-scaling" rust status "${1:-1,2,4,8,12,16}"
+# Consolidated benchmark script for nit implementations
+source "$(dirname "$0")/lib.sh"
+
+# Defaults
+WARMUP=2
+MIN_RUNS=5
+BENCH_DIR=""
+HYPERFINE_OPTS=()
+
+# Subcommand-specific defaults
+CMD="status"
+WORKERS="8"
+IMPL="rust"
+WORKER_LIST="1,2,4,8,12,16"
+
+show_help() {
+    cat <<'EOF'
+bench - Benchmark nit implementations
+
+Usage: bench <subcommand> [options] [-- hyperfine-flags]
+
+Subcommands:
+  compare   Compare all implementations head-to-head
+  scale     Test worker scaling for an implementation
+  suite     Run full benchmark suite with markdown output
+  help      Show this help message
+
+Global Options:
+  -h, --help              Show help
+  -d, --dir DIR           Run benchmarks in DIR (default: current directory)
+  -w, --warmup N          Warmup runs (default: 2)
+  -m, --min-runs N        Minimum benchmark runs (default: 5)
+  -i, --ignore-failure    Continue on non-zero exit codes
+  --show-output           Show command stdout/stderr
+
+compare Options:
+  -c, --cmd CMD           Git command to benchmark (default: status)
+  -n, --workers N         Number of workers (default: 8)
+
+scale Options:
+  -I, --impl IMPL         Implementation to test (default: rust)
+  -c, --cmd CMD           Git command to benchmark (default: status)
+  -n, --workers LIST      Comma-separated worker counts (default: 1,2,4,8,12,16)
+
+Examples:
+  bench compare -d ~/src                # compare impls in ~/src directory
+  bench compare -c fetch -n 4           # compare on fetch with 4 workers
+  bench compare --show-output -i        # debug failures
+  bench scale -I zig -n 1,2,4,8         # test zig scaling
+  bench suite -d ~/src > results.md     # generate markdown report
+  bench compare -- --export-json out.json
+EOF
+}
+
+show_subcommand_help() {
+    local subcmd="$1"
+    case "$subcmd" in
+        compare)
+            cat <<'EOF'
+bench compare - Compare all implementations head-to-head
+
+Usage: bench compare [options] [-- hyperfine-flags]
+
+Options:
+  -c, --cmd CMD       Git command to benchmark (default: status)
+  -n, --workers N     Number of workers (default: 8)
+
+Global options (-d, -w, -m, -i, --show-output) also apply.
+EOF
+            ;;
+        scale)
+            cat <<'EOF'
+bench scale - Test worker scaling for an implementation
+
+Usage: bench scale [options] [-- hyperfine-flags]
+
+Options:
+  -I, --impl IMPL       Implementation to test (default: rust)
+  -c, --cmd CMD         Git command to benchmark (default: status)
+  -n, --workers LIST    Comma-separated worker counts (default: 1,2,4,8,12,16)
+
+Global options (-d, -w, -m, -i, --show-output) also apply.
+EOF
+            ;;
+        suite)
+            cat <<'EOF'
+bench suite - Run full benchmark suite with markdown output
+
+Usage: bench suite [options]
+
+Runs head-to-head comparisons and scaling tests for all implementations.
+Output is markdown-formatted, suitable for piping to a file:
+
+  bench suite > docs/benchmark-results.md
+
+Global options (-d, -w, -m, -i, --show-output) also apply.
+EOF
+            ;;
+    esac
+}
+
+# Handle global options that take an argument (-d, -w, -m)
+parse_global_opt_with_arg() {
+    case "$1" in
+        -d|--dir) BENCH_DIR="$2" ;;
+        -w|--warmup) WARMUP="$2" ;;
+        -m|--min-runs) MIN_RUNS="$2" ;;
+    esac
+}
+
+# Handle global options that are flags (-i, --show-output)
+parse_global_opt_flag() {
+    HYPERFINE_OPTS+=("$1")
+}
+
+cmd_compare() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) show_subcommand_help compare; exit 0 ;;
+            -c|--cmd) CMD="$2"; shift 2 ;;
+            -n|--workers) WORKERS="$2"; shift 2 ;;
+            -d|--dir|-w|--warmup|-m|--min-runs)
+                parse_global_opt_with_arg "$1" "$2"; shift 2 ;;
+            -i|--ignore-failure|--show-output)
+                parse_global_opt_flag "$1"; shift ;;
+            --) shift; HYPERFINE_OPTS+=("$@"); break ;;
+            -*) echo "Unknown option: $1"; exit 1 ;;
+            *) break ;;
+        esac
+    done
+
+    IMPLEMENTATIONS=($(discover_implementations))
+    [[ ${#IMPLEMENTATIONS[@]} -eq 0 ]] && { echo "No implementations found in ${BIN_DIR}"; exit 1; }
+
+    echo "=== Benchmarking: nit $CMD (workers=$WORKERS) ==="
+    echo "Implementations: ${IMPLEMENTATIONS[*]}"
+    echo
+
+    CMDS=()
+    for impl in "${IMPLEMENTATIONS[@]}"; do
+        name=$(basename "$impl")
+        if [[ -n "$BENCH_DIR" ]]; then
+            CMDS+=("-n" "$name" "cd '$BENCH_DIR' && $impl -n $WORKERS $CMD")
+        else
+            CMDS+=("-n" "$name" "$impl -n $WORKERS $CMD")
+        fi
+    done
+
+    hyperfine --warmup "$WARMUP" --min-runs "$MIN_RUNS" "${HYPERFINE_OPTS[@]}" "${CMDS[@]}"
+}
+
+cmd_scale() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) show_subcommand_help scale; exit 0 ;;
+            -I|--impl) IMPL="$2"; shift 2 ;;
+            -c|--cmd) CMD="$2"; shift 2 ;;
+            -n|--workers) WORKER_LIST="$2"; shift 2 ;;
+            -d|--dir|-w|--warmup|-m|--min-runs)
+                parse_global_opt_with_arg "$1" "$2"; shift 2 ;;
+            -i|--ignore-failure|--show-output)
+                parse_global_opt_flag "$1"; shift ;;
+            --) shift; HYPERFINE_OPTS+=("$@"); break ;;
+            -*) echo "Unknown option: $1"; exit 1 ;;
+            *) break ;;
+        esac
+    done
+
+    NIT="${BIN_DIR}/nit-${IMPL}"
+
+    if [[ ! -x "$NIT" ]]; then
+        echo "Implementation not found: $NIT"
+        echo "Available: $(discover_impl_names | tr '\n' ' ')"
+        exit 1
+    fi
+
+    echo "=== Worker Scaling: nit-${IMPL} $CMD ==="
+    echo "Workers: $WORKER_LIST"
+    echo
+
+    local bench_cmd="$NIT -n {workers} $CMD"
+    [[ -n "$BENCH_DIR" ]] && bench_cmd="cd '$BENCH_DIR' && $bench_cmd"
+
+    hyperfine \
+        --warmup "$WARMUP" \
+        --min-runs "$MIN_RUNS" \
+        "${HYPERFINE_OPTS[@]}" \
+        -L workers "$WORKER_LIST" \
+        "$bench_cmd"
+}
+
+cmd_suite() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) show_subcommand_help suite; exit 0 ;;
+            -d|--dir|-w|--warmup|-m|--min-runs)
+                parse_global_opt_with_arg "$1" "$2"; shift 2 ;;
+            -i|--ignore-failure|--show-output)
+                parse_global_opt_flag "$1"; shift ;;
+            --) shift; break ;;
+            -*) echo "Unknown option: $1"; exit 1 ;;
+            *) break ;;
+        esac
+    done
+
+    echo "# Benchmark Results - $(date '+%Y-%m-%d')"
+    echo
+    echo "## Environment"
+    echo
+    echo "* $(uname -s) $(uname -r)"
+    echo "* $(sysctl -n hw.ncpu 2>/dev/null || nproc) CPU cores"
+    echo "* Implementations: $(discover_impl_names | tr '\n' ' ')"
+    echo
+
+    for cmd in status fetch; do
+        echo "## $cmd - Head to Head"
+        echo
+        echo '```'
+        CMD="$cmd" WORKERS="8" cmd_compare 2>&1
+        echo '```'
+        echo
+    done
+
+    echo "## Worker Scaling (status)"
+    echo
+    for impl in $(discover_impl_names); do
+        echo "### nit-${impl}"
+        echo
+        echo '```'
+        IMPL="$impl" CMD="status" WORKER_LIST="1,2,4,8" cmd_scale 2>&1
+        echo '```'
+        echo
+    done
+}
+
+main() {
+    # Parse global options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                if [[ $# -eq 1 ]]; then
+                    show_help
+                    exit 0
+                fi
+                break  # Let subcommand handle its own -h
+                ;;
+            -d|--dir|-w|--warmup|-m|--min-runs)
+                parse_global_opt_with_arg "$1" "$2"; shift 2 ;;
+            -i|--ignore-failure|--show-output)
+                parse_global_opt_flag "$1"; shift ;;
+            --) shift; HYPERFINE_OPTS+=("$@"); break ;;
+            -*)
+                # Check if this is a known subcommand option, if so let subcommand handle it
+                break
+                ;;
+            *) break ;;
+        esac
+    done
+
+    SUBCOMMAND="${1:-compare}"
+    shift || true
+
+    case "$SUBCOMMAND" in
+        compare) cmd_compare "$@" ;;
+        scale) cmd_scale "$@" ;;
+        suite) cmd_suite "$@" ;;
+        help) show_help ;;
+        *)
+            echo "Unknown subcommand: $SUBCOMMAND"
+            echo "Run 'bench help' for usage."
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

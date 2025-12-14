@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Find all git repositories in the current directory (depth 1).
 /// Returns a sorted list of paths to directories containing a .git folder.
@@ -25,7 +25,7 @@ pub fn find_git_repos() -> Result<Vec<PathBuf>> {
 }
 
 /// Extract just the repository name from a path
-pub fn repo_name(path: &PathBuf) -> String {
+pub fn repo_name(path: &Path) -> String {
     path.file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")

@@ -6,5 +6,4 @@ description = "parallel git across many repositories"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-rayon = "1.10"
 anyhow = "1.0"
