@@ -1,6 +1,21 @@
 use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+/// Check if the current working directory is inside a git repository.
+/// Uses `git rev-parse --git-dir` which correctly handles worktrees,
+/// bare repos, and the GIT_DIR environment variable.
+pub fn is_inside_git_repo() -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
 
 /// Find all git repositories in the current directory (depth 1).
 /// Returns a sorted list of paths to directories containing a .git folder.

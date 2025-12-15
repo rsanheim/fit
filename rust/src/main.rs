@@ -1,12 +1,16 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::process::Command;
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 mod commands;
 mod repo;
 mod runner;
 
 use commands::{fetch, passthrough, pull, status};
-use repo::find_git_repos;
+use repo::{find_git_repos, is_inside_git_repo};
 use runner::{ExecutionContext, UrlScheme};
 
 #[derive(Parser)]
@@ -57,7 +61,33 @@ enum Commands {
     External(Vec<String>),
 }
 
+/// Exec git with all original args, replacing the nit process.
+/// This is used when nit is invoked from inside a git repository.
+#[cfg(unix)]
+fn passthrough_to_git() -> ! {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let err = Command::new("git").args(&args).exec();
+    // exec() only returns on error
+    eprintln!("nit: failed to exec git: {}", err);
+    std::process::exit(1);
+}
+
+#[cfg(not(unix))]
+fn passthrough_to_git() -> ! {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let status = Command::new("git")
+        .args(&args)
+        .status()
+        .expect("failed to execute git");
+    std::process::exit(status.code().unwrap_or(1));
+}
+
 fn main() -> Result<()> {
+    // Passthrough mode: if we're inside a git repo, just exec git directly
+    if is_inside_git_repo() {
+        passthrough_to_git();
+    }
+
     let cli = Cli::parse();
 
     let repos = find_git_repos()?;

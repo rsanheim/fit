@@ -63,6 +63,44 @@ fn printVersion() void {
     stdout.writeAll(msg) catch {};
 }
 
+/// Exec git with all original args, replacing the nit process.
+/// This is used when nit is invoked from inside a git repository.
+fn passthroughToGit(allocator: std.mem.Allocator) noreturn {
+    // Collect original args, replacing argv[0] with "git"
+    var args_iter = std.process.argsWithAllocator(allocator) catch std.process.exit(1);
+    defer args_iter.deinit();
+
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(allocator);
+
+    // Skip program name (nit) and prepend "git"
+    _ = args_iter.next();
+    argv.append(allocator, "git") catch std.process.exit(1);
+
+    // Add remaining args
+    while (args_iter.next()) |arg| {
+        argv.append(allocator, arg) catch std.process.exit(1);
+    }
+
+    // Spawn git and wait, then exit with its code
+    var child = std.process.Child.init(argv.items, allocator);
+
+    child.spawn() catch |err| {
+        std.debug.print("nit: failed to exec git: {s}\n", .{@errorName(err)});
+        std.process.exit(1);
+    };
+
+    const term = child.wait() catch |err| {
+        std.debug.print("nit: failed to wait for git: {s}\n", .{@errorName(err)});
+        std.process.exit(1);
+    };
+
+    switch (term) {
+        .Exited => |code| std.process.exit(code),
+        else => std.process.exit(1),
+    }
+}
+
 fn parseArgs(allocator: std.mem.Allocator) !ParsedArgs {
     var args_iter = try std.process.argsWithAllocator(allocator);
     defer args_iter.deinit();
@@ -154,6 +192,11 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    // Passthrough mode: if we're inside a git repo, just exec git directly
+    if (repo.isInsideGitRepo(allocator)) {
+        passthroughToGit(allocator);
+    }
 
     const args = try parseArgs(allocator);
     defer allocator.free(args.extra_args);

@@ -1,31 +1,24 @@
 # nit
 
-`nit` is a CLI meant to explore different ways to handle parallel git tasks across many 
-repositorieis. We will be implementing `nit` in many different languages to compare approaches. 
+`nit` is a CLI for running parallel git operations across many repositories. We implement `nit` in multiple languages (Rust, Zig, etc.) to compare approaches.
 
-For now, `nit` should be a raw wrapper around `git` that, in its most basic form, 
-simply runs git for all "sub-repos" with all args passed through.
+See [SPEC.md](SPEC.md) for the formal specification.
 
-However, for some commands, we want to do better: we want to condense output and ensure performance is as fast as possible. For example, for the following:
-```
-[~/src/oss] nit pull
-```
+## Operating Modes
 
-This should recurse into every directory of ~/src/oss (depth of 1) that is a git repo, and run some form of `git pull` in each repo, in parallel, using up to `--workers|-n` as the number of workers to use.
+**Passthrough Mode**: When inside a git repository, `nit` acts as a transparent wrapper around `git`. All arguments pass through unchanged - `nit status` becomes `git status`.
 
-This should be done as performantly as possible, which _probably_ means leveraging `git`'s "-C" flag to switch dits, or perhaps '--git-dir' ? We will want benchmarks for this.
+**Multi-Repository Mode**: When NOT inside a git repository, `nit` discovers sub-repos at depth 1 and runs commands across all of them in parallel.
 
-Regarding output: `nit` should intelligently condense output from git for specific commands to ensure there is **one line** of output for each repo by default. Ideally, we can do this via `git` options to the underlying `git` subcommand.
+### Multi-Repository Mode Details
 
-The 'one line' commands for now are: 
+In multi-repository mode, `nit` provides optimized commands with condensed single-line output:
 
-- `git pull`
-- `git fetch`
-- `git status`
+* `nit pull` - Pull all repos with single-line status per repo
+* `nit fetch` - Fetch all repos with single-line status per repo
+* `nit status` - Status all repos with single-line status per repo
 
-For all of these, we should research the best way to use modern git features to get some sensible, helpful single line output. If there is not a core git way to do this, we should implement it via our own code (i.e. a callback, a hook, a function, a promise).
-
-If someone runs `nit pull` or `nit fetch` with any any additional flags, options, or args that are NOT used by `nit` itself, they should passed through to the underlying `git` command verbatim.
+Any other command passes through to git verbatim for each repo. Additional flags are forwarded to git.
 
 ## GLOBAL OPTIONS
 
