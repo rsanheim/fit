@@ -1,6 +1,20 @@
 const std = @import("std");
 const fs = std.fs;
 
+/// Check if the current working directory is inside a git repository.
+/// Uses `git rev-parse --git-dir` which correctly handles worktrees,
+/// bare repos, and the GIT_DIR environment variable.
+pub fn isInsideGitRepo(allocator: std.mem.Allocator) bool {
+    const argv = [_][]const u8{ "git", "rev-parse", "--git-dir" };
+    var child = std.process.Child.init(&argv, allocator);
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+
+    child.spawn() catch return false;
+    const term = child.wait() catch return false;
+    return term.Exited == 0;
+}
+
 /// Find all git repositories in the current directory (depth 1).
 /// Returns a sorted list of absolute paths to directories containing a .git folder.
 /// Caller owns the returned slice and paths.
