@@ -13,13 +13,14 @@ Usage: test [options]
 
 Options:
   -h, --help              Show this help message
-  -l, --language LANG     Run tests for specific language only (rust, zig)
+  -l, --language LANG     Run tests for specific language only (rust, zig, ruby)
   -v, --verbose           Show verbose test output
 
 Examples:
   test                    Run all implementation tests
   test -l rust            Run only Rust tests
   test --language zig     Run only Zig tests
+  test -l ruby            Run only Ruby tests
   test -v                 Run all tests with verbose output
 EOF
 }
@@ -78,6 +79,33 @@ run_zig_tests() {
     return $status
 }
 
+run_ruby_tests() {
+    local ruby_dir="${SCRIPT_DIR}/../ruby"
+    if [[ ! -d "$ruby_dir" ]]; then
+        echo "Ruby implementation not found at $ruby_dir"
+        return 1
+    fi
+
+    echo "=== Running Ruby tests ==="
+    echo
+
+    local rspec_opts=()
+    if $VERBOSE; then
+        rspec_opts+=("--format" "documentation")
+    fi
+
+    (cd "$ruby_dir" && bundle exec rspec "${rspec_opts[@]}")
+    local status=$?
+
+    echo
+    if [[ $status -eq 0 ]]; then
+        echo "✓ Ruby tests passed"
+    else
+        echo "✗ Ruby tests failed"
+    fi
+    return $status
+}
+
 main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -109,10 +137,10 @@ main() {
     # Validate language if specified
     if [[ -n "$LANGUAGE" ]]; then
         case "$LANGUAGE" in
-            rust|zig) ;;
+            rust|zig|ruby) ;;
             *)
                 echo "Unknown language: $LANGUAGE"
-                echo "Supported: rust, zig"
+                echo "Supported: rust, zig, ruby"
                 exit 1
                 ;;
         esac
@@ -130,6 +158,12 @@ main() {
 
     if [[ -z "$LANGUAGE" || "$LANGUAGE" == "zig" ]]; then
         run_zig_tests || failed=1
+        run_count=$((run_count + 1))
+        echo
+    fi
+
+    if [[ -z "$LANGUAGE" || "$LANGUAGE" == "ruby" ]]; then
+        run_ruby_tests || failed=1
         run_count=$((run_count + 1))
     fi
 
