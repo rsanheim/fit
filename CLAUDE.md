@@ -15,13 +15,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Structure
 
 ```
-./rust/          # Rust implementation
-./ruby/          # Ruby implementation
-./bin/           # Wrapper scripts (nit-rust, nit-ruby, etc.)
-./script/       # Benchmarking and housekeeping scripts
+./nit-rust/      # Rust implementation
+./nit-zig/       # Zig implementation
+./bin/           # Wrapper scripts (nit-rust, nit-zig, etc.)
+./script/        # Build, test, and benchmarking scripts
 ```
 
 All binaries should be runnable via `./bin/nit-<language>`.
+Use `script/build -t <type>` to build implementations.
 
 ## Development Tools
 

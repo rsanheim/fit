@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# Build nit implementations
+source "$(dirname "$0")/lib.sh"
+
+TYPE=""
+
+show_help() {
+    cat <<EOF
+build - Build nit implementations
+
+Usage: build [options]
+
+Options:
+  -t, --type TYPE    Build specific type: $(discover_impl_names | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g'), or all (default: all)
+  -l, --list         List available implementations
+  -h, --help         Show this help message
+
+Examples:
+  build                  # Build all implementations
+  build -t rust          # Build Rust only
+  build -t zig           # Build Zig only
+  build --list           # Show what can be built
+EOF
+}
+
+list_implementations() {
+    echo "Available implementations:"
+    for impl in $(discover_impl_names); do
+        local dir
+        dir=$(get_impl_dir "$impl")
+        echo "  $impl  ($dir)"
+    done
+}
+
+build_impl() {
+    local impl="$1"
+    local dir
+    dir=$(get_impl_dir "$impl")
+
+    if [[ ! -d "$dir" ]]; then
+        echo "Implementation not found: $impl ($dir)"
+        return 1
+    fi
+
+    local cmd
+    if ! cmd=$(get_build_cmd "$impl"); then
+        echo "Unknown implementation type: $impl"
+        return 1
+    fi
+
+    echo "=== Building $impl ==="
+    (cd "$dir" && $cmd)
+    local status=$?
+
+    if [[ $status -eq 0 ]]; then
+        echo "✓ $impl built successfully"
+    else
+        echo "✗ $impl build failed"
+    fi
+    echo
+    return $status
+}
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            -t|--type)
+                TYPE="$2"
+                shift 2
+                ;;
+            -l|--list)
+                list_implementations
+                exit 0
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                echo "Run 'build --help' for usage."
+                exit 1
+                ;;
+            *)
+                echo "Unexpected argument: $1"
+                echo "Run 'build --help' for usage."
+                exit 1
+                ;;
+        esac
+    done
+
+    # Default to all
+    if [[ -z "$TYPE" ]]; then
+        TYPE="all"
+    fi
+
+    local impls
+    if [[ "$TYPE" == "all" ]]; then
+        impls=$(discover_impl_names)
+    else
+        # Validate type
+        local valid=false
+        for impl in $(discover_impl_names); do
+            if [[ "$impl" == "$TYPE" ]]; then
+                valid=true
+                break
+            fi
+        done
+        if ! $valid; then
+            echo "Unknown type: $TYPE"
+            echo "Available: $(discover_impl_names | tr '\n' ' ')"
+            exit 1
+        fi
+        impls="$TYPE"
+    fi
+
+    local failed=0
+    local built=0
+
+    for impl in $impls; do
+        build_impl "$impl" || failed=1
+        built=$((built + 1))
+    done
+
+    echo "=== Summary ==="
+    if [[ $failed -eq 0 ]]; then
+        echo "All $built implementation(s) built successfully"
+    else
+        echo "Some builds failed"
+        exit 1
+    fi
+}
+
+main "$@"
