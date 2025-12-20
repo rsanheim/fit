@@ -1,0 +1,19 @@
+version: 2.1
+
+orbs:
+  rust: circleci/rust@1
+
+jobs:
+  test-rust:
+    executor:
+      name: rust/default
+      tag: stable
+    steps:
+      - checkout
+      - rust/test:
+          working_directory: ~/project/nit-rust
+
+workflows:
+  test:
+    jobs:
+      - test-rust
