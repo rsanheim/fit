@@ -190,6 +190,8 @@ else:
 
 ### 6.4 --depth / -d
 
+**Status: Not yet implemented**
+
 1. This option MUST accept a positive integer or the string "all".
 
 2. The default value MUST be 1.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`nit` is a CLI for running parallel git operations across many repositories. The project explores different implementation approaches by building the same tool in multiple languages (Rust, Ruby, etc.).
+`nit` is a CLI for running parallel git operations across many repositories. The project explores different implementation approaches by building the same tool in multiple languages (Rust, Zig, and Crystal).
 
 ## Core Behavior
 
@@ -17,7 +17,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 ./nit-rust/      # Rust implementation
 ./nit-zig/       # Zig implementation
-./bin/           # Wrapper scripts (nit-rust, nit-zig, etc.)
+./nit-crystal/   # Crystal implementation
+./bin/           # Wrapper scripts (nit-rust, nit-zig, nit-crystal)
 ./script/        # Build, test, and benchmarking scripts
 ```
 
@@ -52,4 +53,7 @@ Spawn all git processes immediately (non-blocking), then collect results. This m
 
 ```
 --dry-run                Print exact commands without executing
+--ssh                    Force SSH URLs for remotes
+--https                  Force HTTPS URLs for remotes
+-n, --max-connections N  Maximum parallel git processes (default: 8)
 ```
