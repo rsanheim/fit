@@ -35,8 +35,8 @@ jobs:
       - run:
           name: Install Zig 0.15.2
           command: |
-            curl -L https://ziglang.org/download/0.15.2/zig-linux-x86_64-0.15.2.tar.xz | tar -xJ
-            sudo mv zig-linux-x86_64-0.15.2 /opt/zig
+            curl -L https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz | tar -xJ
+            sudo mv zig-x86_64-linux-0.15.2 /opt/zig
             echo 'export PATH=/opt/zig:$PATH' >> "$BASH_ENV"
       - run:
           name: Run tests
