@@ -7,7 +7,7 @@ jobs:
   test-rust:
     executor:
       name: rust/default
-      tag: stable
+      tag: "1.92"
     steps:
       - checkout
       - rust/test:
