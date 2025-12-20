@@ -6,13 +6,7 @@ const runner = @import("../runner.zig");
 pub fn format(allocator: std.mem.Allocator, stdout: []const u8, stderr: []const u8, success: bool) error{OutOfMemory}![]const u8 {
     if (!success) {
         var lines = std.mem.splitScalar(u8, stderr, '\n');
-        while (lines.next()) |line| {
-            const trimmed = std.mem.trim(u8, line, " \t\r");
-            if (trimmed.len > 0) {
-                return try allocator.dupe(u8, trimmed);
-            }
-        }
-        return try allocator.dupe(u8, "unknown error");
+        return try allocator.dupe(u8, lines.next() orelse "unknown error");
     }
 
     // Count non-empty lines in stdout and stderr (excluding "From" lines)

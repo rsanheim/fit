@@ -45,7 +45,7 @@ describe Commands::Status do
 
     it "returns error message on failure" do
       result = subject.format_output("", "fatal: not a git repository", false)
-      result.should eq("ERROR: fatal: not a git repository")
+      result.should eq("fatal: not a git repository")
     end
   end
 end

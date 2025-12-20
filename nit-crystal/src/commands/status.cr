@@ -7,10 +7,7 @@ module Commands
     end
 
     def format_output(stdout : String, stderr : String, success : Bool) : String
-      unless success
-        error_line = stderr.each_line.find { |l| !l.strip.empty? } || "unknown error"
-        return "ERROR: #{error_line}"
-      end
+      return stderr.each_line.first? || "unknown error" unless success
 
       # Parse porcelain output to count file states
       modified = 0
