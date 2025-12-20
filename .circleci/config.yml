@@ -2,6 +2,7 @@ version: 2.1
 
 orbs:
   rust: circleci/rust@1
+  crystal: manastech/crystal@1.0
 
 jobs:
   test-rust:
@@ -13,7 +14,23 @@ jobs:
       - rust/test:
           working_directory: ~/project/nit-rust
 
+  test-crystal:
+    executor:
+      name: crystal/default
+      tag: "1.18"
+    working_directory: ~/project/nit-crystal
+    steps:
+      - checkout:
+          path: ~/project
+      - crystal/with-shards-cache:
+          cache-key: ~/project/nit-crystal/shard.yml
+          steps:
+            - crystal/shards-install
+      - crystal/spec:
+          junit: false
+
 workflows:
   test:
     jobs:
       - test-rust
+      - test-crystal
