@@ -1,0 +1,51 @@
+version: 2.1
+
+orbs:
+  rust: circleci/rust@1
+
+jobs:
+  test-rust:
+    executor:
+      name: rust/default
+      tag: "1.92"
+    steps:
+      - checkout
+      - rust/test:
+          working_directory: ~/project/nit-rust
+
+  test-crystal:
+    docker:
+      - image: crystallang/crystal:latest
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: shards install
+          working_directory: nit-crystal
+      - run:
+          name: Run specs
+          command: crystal spec
+          working_directory: nit-crystal
+
+  test-zig:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Install Zig 0.15.2
+          command: |
+            curl -L https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz | tar -xJ
+            sudo mv zig-x86_64-linux-0.15.2 /opt/zig
+            echo 'export PATH=/opt/zig:$PATH' >> "$BASH_ENV"
+      - run:
+          name: Run tests
+          command: zig build test
+          working_directory: nit-zig
+
+workflows:
+  test:
+    jobs:
+      - test-rust
+      - test-crystal
+      - test-zig

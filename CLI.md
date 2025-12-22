@@ -1,13 +1,12 @@
-# nit & knit CLI Reference
+# nit CLI Reference
 
 ## Overview
 
-Two complementary CLIs for running git commands across multiple repositories:
+`nit` is a CLI for running git commands across multiple repositories in parallel.
 
-* **nit**: Operates on repos found from the current working directory
-* **knit**: Operates on repos from user-configured "roots"
+It preserves the `git` passthrough model: `nit <cmd> [args]` runs `git <cmd> [args]` on multiple repos.
 
-Both preserve the `git` passthrough model: `nit <cmd> [args]` runs `git <cmd> [args]` on multiple repos.
+See also: [docs/knit-future.md](docs/knit-future.md) for planned `knit` functionality (roots-based multi-repo git).
 
 ---
 
@@ -33,13 +32,20 @@ OPTIONS
         N = 1, 2, 3, ... (positive integer)
         all = unlimited recursion (stop at .git boundaries)
         Default: 1 (immediate subdirectories only)
+        **Status: Not yet implemented**
 
     -n, --workers <N>
         Number of parallel workers.
-        Default: auto-detect CPU count
+        Default: 8 (0 = unlimited)
 
     --dry-run
         Print exact git commands without executing them.
+
+    --ssh
+        Force SSH URLs (git@github.com:) for all remotes.
+
+    --https
+        Force HTTPS URLs (https://github.com/) for all remotes.
 
     -h, --help
         Show help message.
@@ -63,123 +69,24 @@ EXAMPLES
     nit pull -p
         Pull with prune for all repos. The -p is passed to git.
 
-    nit -d 3 fetch
-        Fetch repos up to 3 levels deep.
-
-    nit -d all status
-        Status of ALL repos recursively from CWD.
-
     nit --dry-run pull
         Show what git commands would run without executing.
 
     nit checkout main
         Checkout main branch in all repos (passthrough mode).
-```
 
----
-
-## knit - Roots-Based Multi-Repo Git
-
-```
-NAME
-    knit - parallel git operations across registered repository roots
-
-SYNOPSIS
-    knit [OPTIONS] <command> [<args>...]
-    knit roots [add|rm|list] [<path>]
-    knit --help | --version
-
-DESCRIPTION
-    knit operates on repositories discovered from user-configured "roots".
-    Unlike nit, which starts from CWD, knit uses a persistent configuration
-    to define where your repositories live.
-
-    Run knit from anywhere - it always uses your configured roots.
-
-OPTIONS
-    -d, --depth <N|all>
-        Search depth within each root.
-        Default: 1
-
-    -n, --workers <N>
-        Number of parallel workers.
-        Default: auto-detect CPU count
-
-    --dry-run
-        Print exact git commands without executing them.
-
-    -h, --help
-        Show help message.
-
-    -V, --version
-        Show version.
-
-ROOT MANAGEMENT
-    knit roots
-        List all configured roots.
-
-    knit roots add <path>
-        Add a directory as a root. Path is canonicalized and stored.
-
-    knit roots rm <path>
-        Remove a root from configuration.
-
-EXAMPLES
-    knit roots add ~/src
-        Register ~/src as a root directory.
-
-    knit roots add ~/work
-        Register another root.
-
-    knit roots
-        List all roots:
-          ~/src
-          ~/work
-
-    knit status
-        Status of all repos under all roots.
-
-    knit pull -p
-        Pull all repos from all roots.
-
-    knit -d all fetch
-        Fetch repos recursively within each root.
-
-    knit roots rm ~/old-projects
-        Remove a root.
-
-CONFIGURATION
-    Roots are stored in:
-        ~/.config/nit/roots.toml    (Linux/macOS XDG)
-
-    Format:
-        [[roots]]
-        path = "/Users/rob/src"
-
-        [[roots]]
-        path = "/Users/rob/work"
+    nit --ssh fetch
+        Fetch using SSH URLs even if remotes are configured as HTTPS.
 ```
 
 ---
 
 ## Output Format
 
-### nit output (flat, from CWD)
-
 ```
 repo-name        ✓ clean
 another-repo     ↓2 ↑1 (main)
 dirty-repo       M3 ?2 (feature-branch)
-```
-
-### knit output (grouped by root)
-
-```
-~/src
-  project-a      ✓ clean
-  project-b      ↓2 ↑1 (main)
-~/work
-  client-app     M3 ?2 (feature-branch)
 ```
 
 ### Legend
@@ -225,74 +132,14 @@ repo-c           ✓ Already up to date
 
 ---
 
-## Configuration
+## Wrapper Scripts
 
-### File Locations
-
-```
-~/.config/nit/
-└── roots              # knit root configuration (plain text)
-
-~/.cache/nit/
-└── ...                # Cached repo discovery (future)
-```
-
-### roots File Format
-
-Plain text, one path per line. Lines starting with `#` are comments.
-
-```
-# ~/.config/nit/roots
-~/src
-~/work
-/absolute/path/also/works
-```
-
-Paths are canonicalized when added via `knit roots add`.
-
----
-
-## Implementation Notes
-
-### Binary Structure
-
-Single binary with symlink detection. The binary inspects `argv[0]` to determine
-which mode to run in:
-
-```
-nit (main binary)
-knit -> nit (symlink)
-```
-
-**Detection logic** (works across all implementations):
-
-```
-basename = get_basename(argv[0])  # strip path, get "nit" or "knit"
-if basename contains "knit":
-    mode = KNIT (roots-based)
-else:
-    mode = NIT (CWD-based)
-```
-
-This approach works for:
-* Direct invocation: `./nit`, `./knit`
-* Symlinks: `knit -> nit`
-* Full paths: `/usr/local/bin/knit`
-* Wrapper scripts named appropriately
-
-### Wrapper Scripts
-
-Development wrappers in `./bin/` follow the same pattern:
+Development wrappers in `./bin/` for testing each implementation:
 
 ```
 ./bin/nit-rust     → runs Rust implementation
-./bin/knit-rust    → symlink to nit-rust (or wrapper that invokes nit-rust)
-
 ./bin/nit-zig      → runs Zig implementation
-./bin/knit-zig     → symlink to nit-zig
-
-./bin/nit-ruby     → runs Ruby implementation
-./bin/knit-ruby    → symlink to nit-ruby
+./bin/nit-crystal  → runs Crystal implementation
 ```
 
-The underlying binary/script detects its invocation name and behaves accordingly.
+The underlying binary is executed with arguments passed through.
