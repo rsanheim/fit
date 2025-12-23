@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# nit -> nit-rust by default
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${SCRIPT_DIR}/../nit-rust/target/release/nit" "$@"
+exec "${SCRIPT_DIR}/nit-rust" "$@"

@@ -12,12 +12,7 @@ impl OutputFormatter for PullFormatter {
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         if !output.status.success() {
-            // Error case - extract first meaningful line from stderr
-            let error_line = stderr
-                .lines()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or("unknown error");
-            return format!("ERROR: {}", error_line);
+            return stderr.lines().next().unwrap_or("unknown error").to_string();
         }
 
         // Check for "Already up to date"

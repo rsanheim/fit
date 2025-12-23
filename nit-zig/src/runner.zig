@@ -1,5 +1,6 @@
 const std = @import("std");
 const repo = @import("repo.zig");
+const main = @import("main.zig");
 
 const MAX_REPO_NAME_WIDTH: usize = 24;
 
@@ -26,11 +27,21 @@ pub fn formatRepoName(allocator: std.mem.Allocator, name: []const u8) ![]const u
 pub const ExecutionContext = struct {
     workers: usize,
     dry_run: bool,
+    url_scheme: ?main.UrlScheme,
 
-    pub fn init(workers: usize, dry_run: bool) ExecutionContext {
+    pub fn init(workers: usize, dry_run: bool, url_scheme: ?main.UrlScheme) ExecutionContext {
         return .{
             .workers = workers,
             .dry_run = dry_run,
+            .url_scheme = url_scheme,
+        };
+    }
+
+    /// Get git config args for URL scheme rewriting
+    pub fn urlSchemeArgs(self: *const ExecutionContext) []const []const u8 {
+        return switch (self.url_scheme orelse return &.{}) {
+            .ssh => &.{ "-c", "url.git@github.com:.insteadOf=https://github.com/" },
+            .https => &.{ "-c", "url.https://github.com/.insteadOf=git@github.com:" },
         };
     }
 };
@@ -39,12 +50,14 @@ pub const ExecutionContext = struct {
 pub const GitCommand = struct {
     repo_path: []const u8,
     args: []const []const u8,
+    url_scheme_args: []const []const u8,
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, repo_path: []const u8, args: []const []const u8) GitCommand {
+    pub fn init(allocator: std.mem.Allocator, repo_path: []const u8, args: []const []const u8, url_scheme_args: []const []const u8) GitCommand {
         return .{
             .repo_path = repo_path,
             .args = args,
+            .url_scheme_args = url_scheme_args,
             .allocator = allocator,
         };
     }
@@ -54,7 +67,15 @@ pub const GitCommand = struct {
         var parts: std.ArrayList(u8) = .empty;
         errdefer parts.deinit(self.allocator);
 
-        try parts.appendSlice(self.allocator, "git -C ");
+        try parts.appendSlice(self.allocator, "git");
+
+        // Add URL scheme args (e.g., -c url.git@github.com:...)
+        for (self.url_scheme_args) |arg| {
+            try parts.append(self.allocator, ' ');
+            try parts.appendSlice(self.allocator, arg);
+        }
+
+        try parts.appendSlice(self.allocator, " -C ");
         try parts.appendSlice(self.allocator, self.repo_path);
 
         for (self.args) |arg| {
@@ -72,6 +93,10 @@ pub const GitCommand = struct {
         defer argv.deinit(self.allocator);
 
         argv.append(self.allocator, "git") catch return .{ .err = .{ .repo_name = repo.repoName(self.repo_path), .message = "failed to build argv" } };
+        // Add URL scheme args (e.g., -c url.git@github.com:...)
+        for (self.url_scheme_args) |arg| {
+            argv.append(self.allocator, arg) catch return .{ .err = .{ .repo_name = repo.repoName(self.repo_path), .message = "failed to build argv" } };
+        }
         argv.append(self.allocator, "-C") catch return .{ .err = .{ .repo_name = repo.repoName(self.repo_path), .message = "failed to build argv" } };
         argv.append(self.allocator, self.repo_path) catch return .{ .err = .{ .repo_name = repo.repoName(self.repo_path), .message = "failed to build argv" } };
         for (self.args) |arg| {
@@ -158,10 +183,11 @@ const ThreadContext = struct {
 
 fn workerThread(thread_ctx: ThreadContext) void {
     const allocator = thread_ctx.allocator;
+    const url_scheme_args = thread_ctx.ctx.urlSchemeArgs();
 
     for (thread_ctx.start_idx..thread_ctx.end_idx) |i| {
         const repo_path = thread_ctx.repos[i];
-        const cmd = GitCommand.init(allocator, repo_path, thread_ctx.extra_args);
+        const cmd = GitCommand.init(allocator, repo_path, thread_ctx.extra_args, url_scheme_args);
 
         var output_line: []const u8 = undefined;
         var needs_free = true;

@@ -1,6 +1,6 @@
 # nit
 
-`nit` is a CLI for running parallel git operations across many repositories. We implement `nit` in multiple languages (Rust, Zig, etc.) to compare approaches.
+`nit` is a CLI for running parallel git operations across many repositories. We implement `nit` in multiple languages (Rust, Zig, and Crystal) to compare approaches.
 
 See [SPEC.md](SPEC.md) for the formal specification.
 
@@ -39,8 +39,10 @@ COMMANDS:
    help, h          Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --workers int, -n int           Number of parallel workers (default: auto-detect CPUs) (default: 0)
-   --dry-run                       Print the **exact** command for every repo without running it
+   -n, --workers N   Number of parallel workers (default: 8, 0 = unlimited)
+   --dry-run         Print the **exact** command for every repo without running it
+   --ssh             Force SSH URLs (git@github.com:) for all remotes
+   --https           Force HTTPS URLs (https://github.com/) for all remotes
 
 ```
 
@@ -108,7 +110,7 @@ etc...
 
 ## MVP goal
 
-* support `nit pull` with fast parallel mode and singline line output
+* support `nit pull` with fast parallel mode and single line output
 * all other git commands should be supported via pass-through mode
 * support dry-run mode with accurate output
 * basic CLI parsing / help / etc

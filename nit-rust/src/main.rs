@@ -28,9 +28,9 @@ struct Cli {
     #[arg(long, conflicts_with = "ssh")]
     https: bool,
 
-    /// Maximum concurrent git processes (default: 8, 0 = unlimited)
+    /// Number of parallel workers (default: 8, 0 = unlimited)
     #[arg(short = 'n', long, default_value = "8")]
-    max_connections: usize,
+    workers: usize,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -104,7 +104,7 @@ fn main() -> Result<()> {
         None
     };
 
-    let ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.max_connections);
+    let ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers);
 
     if cli.dry_run {
         println!(

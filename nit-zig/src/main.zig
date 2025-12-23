@@ -18,9 +18,15 @@ const Command = enum {
     external,
 };
 
+pub const UrlScheme = enum {
+    ssh,
+    https,
+};
+
 const ParsedArgs = struct {
     workers: usize,
     dry_run: bool,
+    url_scheme: ?UrlScheme,
     command: Command,
     extra_args: []const []const u8,
 };
@@ -35,6 +41,8 @@ fn printHelp() void {
         \\OPTIONS:
         \\    -n, --workers <NUM>   Number of parallel workers (default: 8)
         \\    --dry-run             Print exact commands without executing
+        \\    --ssh                 Force SSH URLs (git@github.com:) for all remotes
+        \\    --https               Force HTTPS URLs (https://github.com/) for all remotes
         \\    -h, --help            Print help information
         \\    -V, --version         Print version
         \\
@@ -110,6 +118,7 @@ fn parseArgs(allocator: std.mem.Allocator) !ParsedArgs {
 
     var workers: usize = DEFAULT_WORKERS;
     var dry_run: bool = false;
+    var url_scheme: ?UrlScheme = null;
     var command: ?Command = null;
     var extra_args: std.ArrayList([]const u8) = .empty;
     errdefer extra_args.deinit(allocator);
@@ -128,6 +137,7 @@ fn parseArgs(allocator: std.mem.Allocator) !ParsedArgs {
             return .{
                 .workers = workers,
                 .dry_run = dry_run,
+                .url_scheme = url_scheme,
                 .command = .help,
                 .extra_args = try extra_args.toOwnedSlice(allocator),
             };
@@ -137,6 +147,7 @@ fn parseArgs(allocator: std.mem.Allocator) !ParsedArgs {
             return .{
                 .workers = workers,
                 .dry_run = dry_run,
+                .url_scheme = url_scheme,
                 .command = .version,
                 .extra_args = try extra_args.toOwnedSlice(allocator),
             };
@@ -144,6 +155,16 @@ fn parseArgs(allocator: std.mem.Allocator) !ParsedArgs {
 
         if (std.mem.eql(u8, arg, "--dry-run")) {
             dry_run = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--ssh")) {
+            url_scheme = .ssh;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--https")) {
+            url_scheme = .https;
             continue;
         }
 
@@ -183,6 +204,7 @@ fn parseArgs(allocator: std.mem.Allocator) !ParsedArgs {
     return .{
         .workers = workers,
         .dry_run = dry_run,
+        .url_scheme = url_scheme,
         .command = command orelse .help,
         .extra_args = try extra_args.toOwnedSlice(allocator),
     };
@@ -226,7 +248,7 @@ pub fn main() !void {
         return;
     }
 
-    const ctx = runner.ExecutionContext.init(args.workers, args.dry_run);
+    const ctx = runner.ExecutionContext.init(args.workers, args.dry_run, args.url_scheme);
 
     // Print dry-run header if applicable
     if (args.dry_run) {

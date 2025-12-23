@@ -1,0 +1,18 @@
+# Rust build artifacts
+nit-rust/target/
+
+# Zig build artifacts
+nit-zig/zig-out/
+nit-zig/.zig-cache/
+
+# Crystal build artifacts
+nit-crystal/bin/
+nit-crystal/lib/
+
+# Editor/IDE
+.idea/
+*.swp
+*~
+
+# macOS
+.DS_Store
