@@ -94,9 +94,8 @@ main() {
             dest="${INSTALL_DIR}/nit-${impl}"
         fi
 
-        cp "$binary" "$dest"
-        chmod +x "$dest"
-        echo "Installed: $dest"
+        ln -sf "$binary" "$dest"
+        echo "Installed: $dest -> $binary"
     done
 
     echo
