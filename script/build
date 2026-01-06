@@ -3,6 +3,7 @@
 source "$(dirname "$0")/lib.sh"
 
 TYPE=""
+MODE="release"
 
 show_help() {
     cat <<EOF
@@ -12,13 +13,14 @@ Usage: build [options]
 
 Options:
   -t, --type TYPE    Build specific type: $(discover_impl_names | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g'), or all (default: all)
+  -d, --dev          Build debug/dev version (faster compile, slower runtime)
   -l, --list         List available implementations
   -h, --help         Show this help message
 
 Examples:
-  build                  # Build all implementations
-  build -t rust          # Build Rust only
-  build -t zig           # Build Zig only
+  build                  # Build all implementations (release)
+  build -t rust          # Build Rust only (release)
+  build -t rust --dev    # Build Rust debug version
   build --list           # Show what can be built
 EOF
 }
@@ -43,12 +45,12 @@ build_impl() {
     fi
 
     local cmd
-    if ! cmd=$(get_build_cmd "$impl"); then
+    if ! cmd=$(get_build_cmd "$impl" "$MODE"); then
         echo "Unknown implementation type: $impl"
         return 1
     fi
 
-    echo "=== Building $impl ==="
+    echo "=== Building $impl ($MODE) ==="
     (cd "$dir" && $cmd)
     local status=$?
 
@@ -71,6 +73,10 @@ main() {
             -t|--type)
                 TYPE="$2"
                 shift 2
+                ;;
+            -d|--dev)
+                MODE="dev"
+                shift
                 ;;
             -l|--list)
                 list_implementations

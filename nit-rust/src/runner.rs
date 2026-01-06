@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::repo::repo_name;
@@ -148,12 +149,14 @@ pub trait OutputFormatter: Sync {
     fn format(&self, output: &Output) -> String;
 }
 
-/// Run commands in parallel across all repos.
+/// Run commands in parallel across all repos with streaming output.
+///
+/// Results are printed in alphabetical order (repos are pre-sorted) as soon as
+/// contiguous results are available. Uses head-of-line blocking: if repo "aaa"
+/// is slow, "bbb" and "ccc" won't print until "aaa" completes.
 ///
 /// Uses thread-per-process pattern with `wait_with_output()` which is deadlock-safe
 /// (stdlib internally spawns threads to drain stdout/stderr concurrently).
-///
-/// Respects max_connections limit via channel-as-semaphore pattern.
 pub fn run_parallel<F>(
     ctx: &ExecutionContext,
     repos: &[PathBuf],
@@ -176,99 +179,62 @@ where
 
     let max_workers = ctx.max_connections();
 
-    // Determine whether to use concurrency limiting
-    // Skip semaphore when unlimited (0) or when workers >= repos
-    let use_semaphore = max_workers > 0 && max_workers < repos.len();
-
-    // Spawn threads, collect results with indices for ordered output
-    let results: Vec<(usize, PathBuf, Result<Output, std::io::Error>)> = if use_semaphore {
-        run_with_semaphore(repos, &build_command, url_scheme, max_workers)
+    // Create optional semaphore for concurrency limiting
+    // None when unlimited (0) or when workers >= repos
+    let semaphore = if max_workers > 0 && max_workers < repos.len() {
+        Some(Arc::new(Semaphore::new(max_workers)))
     } else {
-        run_unlimited(repos, &build_command, url_scheme)
+        None
     };
 
-    // Sort by index and print in discovery order
-    let mut sorted = results;
-    sorted.sort_by_key(|(idx, _, _)| *idx);
+    // Results storage: None means "not yet received"
+    let mut results: Vec<Option<(PathBuf, Result<Output, std::io::Error>)>> =
+        (0..repos.len()).map(|_| None).collect();
+    let mut next_to_print: usize = 0;
 
-    for (_, repo_path, result) in sorted {
-        print_result(&repo_path, &result, formatter);
-    }
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::scope(|s| {
+        // Spawn threads that send results to channel as they complete
+        for (idx, repo) in repos.iter().enumerate() {
+            let tx = tx.clone();
+            let cmd = build_command(repo);
+            let repo = repo.clone();
+            let sem = semaphore.clone();
+
+            s.spawn(move || {
+                if let Some(ref sem) = sem {
+                    sem.acquire();
+                }
+
+                let result = cmd.spawn(url_scheme).and_then(|c| c.wait_with_output());
+
+                if let Some(ref sem) = sem {
+                    sem.release();
+                }
+
+                let _ = tx.send((idx, repo, result));
+            });
+        }
+        drop(tx); // Close sender so rx iterator ends when all threads complete
+
+        // Receive and print in-order as contiguous results arrive
+        for (idx, repo, result) in rx {
+            results[idx] = Some((repo, result));
+
+            // Print all contiguous completed results from the head
+            while next_to_print < results.len() {
+                if let Some((ref repo_path, ref res)) = results[next_to_print] {
+                    print_result(repo_path, res, formatter);
+                    next_to_print += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+    });
 
     Ok(())
-}
-
-/// Run with concurrency limiting via semaphore
-fn run_with_semaphore<F>(
-    repos: &[PathBuf],
-    build_command: &F,
-    url_scheme: Option<UrlScheme>,
-    max_workers: usize,
-) -> Vec<(usize, PathBuf, Result<Output, std::io::Error>)>
-where
-    F: Fn(&PathBuf) -> GitCommand + Sync,
-{
-    let semaphore = Arc::new(Semaphore::new(max_workers));
-
-    std::thread::scope(|s| {
-        let handles: Vec<_> = repos
-            .iter()
-            .enumerate()
-            .map(|(idx, repo)| {
-                let cmd = build_command(repo);
-                let sem = Arc::clone(&semaphore);
-                s.spawn(move || {
-                    // Acquire permit (blocks if max_workers processes already running)
-                    sem.acquire();
-
-                    let result = cmd
-                        .spawn(url_scheme)
-                        .and_then(|child| child.wait_with_output());
-
-                    // Release permit for next thread
-                    sem.release();
-
-                    (idx, repo.clone(), result)
-                })
-            })
-            .collect();
-
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap())
-            .collect()
-    })
-}
-
-/// Run unlimited: spawn all processes immediately
-fn run_unlimited<F>(
-    repos: &[PathBuf],
-    build_command: &F,
-    url_scheme: Option<UrlScheme>,
-) -> Vec<(usize, PathBuf, Result<Output, std::io::Error>)>
-where
-    F: Fn(&PathBuf) -> GitCommand + Sync,
-{
-    std::thread::scope(|s| {
-        let handles: Vec<_> = repos
-            .iter()
-            .enumerate()
-            .map(|(idx, repo)| {
-                let cmd = build_command(repo);
-                s.spawn(move || {
-                    let result = cmd
-                        .spawn(url_scheme)
-                        .and_then(|child| child.wait_with_output());
-                    (idx, repo.clone(), result)
-                })
-            })
-            .collect();
-
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap())
-            .collect()
-    })
 }
 
 /// Print result for a single repository

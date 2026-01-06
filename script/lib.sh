@@ -31,12 +31,33 @@ discover_impl_dirs() {
 }
 
 # Get build command for implementation type
+# Usage: get_build_cmd <impl> [dev]
+# If second arg is "dev", returns debug/dev build command
 get_build_cmd() {
     local impl="$1"
+    local mode="${2:-release}"
     case "$impl" in
-        rust)    echo "cargo build --release" ;;
-        zig)     echo "zig build --release=fast" ;;
-        crystal) echo "shards build --release" ;;
+        rust)
+            if [[ "$mode" == "dev" ]]; then
+                echo "cargo build"
+            else
+                echo "cargo build --release"
+            fi
+            ;;
+        zig)
+            if [[ "$mode" == "dev" ]]; then
+                echo "zig build"
+            else
+                echo "zig build --release=fast"
+            fi
+            ;;
+        crystal)
+            if [[ "$mode" == "dev" ]]; then
+                echo "shards build"
+            else
+                echo "shards build --release"
+            fi
+            ;;
         *)       return 1 ;;
     esac
 }
