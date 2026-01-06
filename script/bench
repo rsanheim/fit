@@ -22,6 +22,7 @@ Usage: bench <subcommand> [options] [-- hyperfine-flags]
 
 Subcommands:
   compare   Compare all implementations head-to-head
+  git       Compare git commits/branches of an implementation
   scale     Test worker scaling for an implementation
   suite     Run full benchmark suite with markdown output
   help      Show this help message
@@ -43,10 +44,19 @@ scale Options:
   -c, --cmd CMD           Git command to benchmark (default: status)
   -n, --workers LIST      Comma-separated worker counts (default: 1,2,4,8,12,16)
 
+git Options:
+  -I, --impl IMPL         Implementation to compare (default: rust)
+  -b, --baseline REF      Baseline git ref (default: main)
+  -t, --target REF        Target git ref (default: HEAD)
+  -c, --cmd CMD           Git command to benchmark (default: status)
+  -n, --workers N         Number of workers (default: 8)
+
 Examples:
   bench compare -d ~/src                # compare impls in ~/src directory
   bench compare -c fetch -n 4           # compare on fetch with 4 workers
   bench compare --show-output -i        # debug failures
+  bench git -b main -d ~/src             # compare HEAD vs main branch
+  bench git -t fix-branch -c fetch       # compare fix-branch vs main on fetch
   bench scale -I zig -n 1,2,4,8         # test zig scaling
   bench suite -d ~/src > results.md     # generate markdown report
   bench compare -- --export-json out.json
@@ -95,6 +105,30 @@ Output is markdown-formatted, suitable for piping to a file:
   bench suite > docs/benchmark-results.md
 
 Global options (-d, -w, -m, -i, --show-output) also apply.
+EOF
+            ;;
+        git)
+            cat <<'EOF'
+bench git - Compare git commits/branches of an implementation
+
+Usage: bench git [options] [-- hyperfine-flags]
+
+Builds binaries from two git refs and compares their performance.
+Binaries are saved to /tmp with descriptive names (e.g., nit-rust-main-abc123).
+
+Options:
+  -I, --impl IMPL       Implementation to compare (default: rust)
+  -b, --baseline REF    Baseline git ref (default: main)
+  -t, --target REF      Target git ref (default: HEAD)
+  -c, --cmd CMD         Git command to benchmark (default: status)
+  -n, --workers N       Number of workers (default: 8)
+
+Global options (-d, -w, -m, -i, --show-output) also apply.
+
+Examples:
+  bench git                               # compare HEAD vs main
+  bench git -b v0.1.0 -t v0.2.0           # compare tagged versions
+  bench git -c fetch -d ~/src/oss         # compare fetch in ~/src/oss
 EOF
             ;;
     esac
@@ -198,6 +232,129 @@ cmd_scale() {
         "$bench_cmd"
 }
 
+cmd_git() {
+    local BASELINE_REF="main"
+    local TARGET_REF="HEAD"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) show_subcommand_help git; exit 0 ;;
+            -I|--impl) IMPL="$2"; shift 2 ;;
+            -b|--baseline) BASELINE_REF="$2"; shift 2 ;;
+            -t|--target) TARGET_REF="$2"; shift 2 ;;
+            -c|--cmd) CMD="$2"; shift 2 ;;
+            -n|--workers) WORKERS="$2"; shift 2 ;;
+            -d|--dir|-w|--warmup|-m|--min-runs)
+                parse_global_opt_with_arg "$1" "$2"; shift 2 ;;
+            -i|--ignore-failure|--show-output)
+                parse_global_opt_flag "$1"; shift ;;
+            --) shift; HYPERFINE_OPTS+=("$@"); break ;;
+            -*) echo "Unknown option: $1"; exit 1 ;;
+            *)
+                echo "Unexpected argument: $1"
+                echo "Use '-b REF' for baseline or '-t REF' for target"
+                exit 1
+                ;;
+        esac
+    done
+
+    # Save current state
+    local ORIGINAL_REF
+    ORIGINAL_REF=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || git rev-parse HEAD)
+    local STASHED=false
+
+    # Check for uncommitted changes
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "Stashing uncommitted changes..."
+        git stash push -m "bench git: temporary stash"
+        STASHED=true
+    fi
+
+    cleanup() {
+        echo "Restoring to $ORIGINAL_REF..."
+        git checkout "$ORIGINAL_REF" 2>/dev/null || true
+        if [[ "$STASHED" == "true" ]]; then
+            echo "Restoring stashed changes..."
+            git stash pop || true
+        fi
+    }
+    trap cleanup EXIT
+
+    # Resolve refs to short SHAs for naming
+    local BASELINE_SHA TARGET_SHA
+    BASELINE_SHA=$(git rev-parse --short "$BASELINE_REF")
+    TARGET_SHA=$(git rev-parse --short "$TARGET_REF")
+
+    # Use the ref as the display name (branch name, tag, or SHA)
+    # The SHA suffix in the binary path ensures uniqueness even if the ref moves
+    local BASELINE_NAME="$BASELINE_REF"
+    local TARGET_NAME="$TARGET_REF"
+
+    local BASELINE_BIN="/tmp/nit-${IMPL}-${BASELINE_NAME}-${BASELINE_SHA}"
+    local TARGET_BIN="/tmp/nit-${IMPL}-${TARGET_NAME}-${TARGET_SHA}"
+
+    local IMPL_DIR
+    IMPL_DIR=$(get_impl_dir "$IMPL")
+    local BUILD_CMD
+    BUILD_CMD=$(get_build_cmd "$IMPL")
+    local BINARY_PATH
+    BINARY_PATH=$(get_binary_path "$IMPL")
+
+    echo "=== Building $IMPL binaries for comparison ==="
+    echo "Baseline: $BASELINE_REF ($BASELINE_SHA)"
+    echo "Target:   $TARGET_REF ($TARGET_SHA)"
+    echo
+
+    # Build baseline
+    if [[ -x "$BASELINE_BIN" ]]; then
+        echo "Using cached baseline: $BASELINE_BIN"
+    else
+        echo "Building baseline ($BASELINE_REF)..."
+        git checkout "$BASELINE_REF"
+        (cd "$IMPL_DIR" && $BUILD_CMD)
+        cp "$BINARY_PATH" "$BASELINE_BIN"
+        echo "Saved: $BASELINE_BIN"
+    fi
+    echo
+
+    # Build target
+    if [[ -x "$TARGET_BIN" ]]; then
+        echo "Using cached target: $TARGET_BIN"
+    else
+        echo "Building target ($TARGET_REF)..."
+        git checkout "$TARGET_REF"
+        (cd "$IMPL_DIR" && $BUILD_CMD)
+        cp "$BINARY_PATH" "$TARGET_BIN"
+        echo "Saved: $TARGET_BIN"
+    fi
+    echo
+
+    # Return to original ref before benchmarking
+    git checkout "$ORIGINAL_REF"
+    if [[ "$STASHED" == "true" ]]; then
+        git stash pop
+        STASHED=false
+    fi
+    trap - EXIT
+
+    echo "=== Benchmarking: nit $CMD (workers=$WORKERS) ==="
+    echo "Baseline: $BASELINE_NAME-$BASELINE_SHA"
+    echo "Target:   $TARGET_NAME-$TARGET_SHA"
+    echo
+
+    local BASELINE_CMD="$BASELINE_BIN -n $WORKERS $CMD"
+    local TARGET_CMD="$TARGET_BIN -n $WORKERS $CMD"
+    [[ -n "$BENCH_DIR" ]] && BASELINE_CMD="cd '$BENCH_DIR' && $BASELINE_CMD"
+    [[ -n "$BENCH_DIR" ]] && TARGET_CMD="cd '$BENCH_DIR' && $TARGET_CMD"
+
+    hyperfine \
+        --warmup "$WARMUP" \
+        --min-runs "$MIN_RUNS" \
+        "${HYPERFINE_OPTS[@]}" \
+        -n "$BASELINE_NAME-$BASELINE_SHA" "$BASELINE_CMD" \
+        -n "$TARGET_NAME-$TARGET_SHA" "$TARGET_CMD"
+}
+
 cmd_suite() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -274,6 +431,7 @@ main() {
 
     case "$SUBCOMMAND" in
         compare) cmd_compare "$@" ;;
+        git) cmd_git "$@" ;;
         scale) cmd_scale "$@" ;;
         suite) cmd_suite "$@" ;;
         help) show_help ;;

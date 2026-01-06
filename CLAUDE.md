@@ -33,6 +33,47 @@ All binaries should be runnable via `./bin/nit-<language>`.
 
 Run any script with `--help` for options.
 
+## Development Workflow
+
+### Quick Start
+```bash
+script/build -t rust     # build release
+script/test -t rust      # run tests
+./bin/nit-rust status    # run locally
+```
+
+### Building
+```bash
+script/build -t rust         # release build (optimized, slower compile)
+script/build -t rust --dev   # debug build (fast compile, slower runtime)
+script/build                 # build all implementations (release)
+```
+
+### Running Locally
+After building, run via wrapper scripts which point to the release binary:
+```bash
+./bin/nit-rust status
+./bin/nit-zig status
+./bin/nit-crystal status
+```
+
+Or run debug builds directly for fast iteration:
+```bash
+./nit-rust/target/debug/nit status
+```
+
+### Testing
+```bash
+script/test -t rust          # run Rust tests
+script/test                  # run all tests
+cargo test                   # run directly in nit-rust/
+```
+
+### Installing Globally
+```bash
+script/install -t rust       # installs release build as ~/.local/bin/nit
+```
+
 ## Development Tools
 
 * `mise` for tool/dependency management
