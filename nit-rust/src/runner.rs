@@ -1,11 +1,41 @@
 use anyhow::Result;
-use std::io::Read;
 use std::path::PathBuf;
-use std::process::{Child, Command, Output, Stdio};
-use std::thread;
-use std::time::Duration;
+use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Condvar, Mutex};
 
 use crate::repo::repo_name;
+
+/// Simple counting semaphore using stdlib primitives.
+/// Allows limiting concurrent operations to N at a time.
+struct Semaphore {
+    count: Mutex<usize>,
+    cond: Condvar,
+}
+
+impl Semaphore {
+    fn new(permits: usize) -> Self {
+        Semaphore {
+            count: Mutex::new(permits),
+            cond: Condvar::new(),
+        }
+    }
+
+    /// Acquire a permit, blocking if none available.
+    fn acquire(&self) {
+        let mut count = self.count.lock().unwrap();
+        while *count == 0 {
+            count = self.cond.wait(count).unwrap();
+        }
+        *count -= 1;
+    }
+
+    /// Release a permit, waking one waiting thread.
+    fn release(&self) {
+        let mut count = self.count.lock().unwrap();
+        *count += 1;
+        self.cond.notify_one();
+    }
+}
 
 const MAX_REPO_NAME_WIDTH: usize = 24;
 
@@ -70,7 +100,7 @@ impl GitCommand {
 
     /// Spawn the git command without waiting for completion.
     /// Returns immediately with a Child process handle.
-    pub fn spawn(&self, url_scheme: Option<UrlScheme>) -> std::io::Result<Child> {
+    pub fn spawn(&self, url_scheme: Option<UrlScheme>) -> std::io::Result<std::process::Child> {
         let mut cmd = Command::new("git");
 
         // Inject URL scheme override if specified (must come before other args)
@@ -118,28 +148,12 @@ pub trait OutputFormatter: Sync {
     fn format(&self, output: &Output) -> String;
 }
 
-/// A spawned git process with its associated repo info (used by unlimited mode)
-struct SpawnedCommand {
-    repo_path: PathBuf,
-    child: Result<Child, std::io::Error>,
-}
-
-/// An active git process being tracked in limited mode
-struct ActiveProcess {
-    index: usize,
-    repo_path: PathBuf,
-    child: Child,
-}
-
-/// Completed process output waiting to be printed in order
-struct CompletedOutput {
-    index: usize,
-    repo_path: PathBuf,
-    output: Result<Output, std::io::Error>,
-}
-
 /// Run commands in parallel across all repos.
-/// Respects max_connections limit if set, otherwise spawns all immediately.
+///
+/// Uses thread-per-process pattern with `wait_with_output()` which is deadlock-safe
+/// (stdlib internally spawns threads to drain stdout/stderr concurrently).
+///
+/// Respects max_connections limit via channel-as-semaphore pattern.
 pub fn run_parallel<F>(
     ctx: &ExecutionContext,
     repos: &[PathBuf],
@@ -147,11 +161,11 @@ pub fn run_parallel<F>(
     formatter: &dyn OutputFormatter,
 ) -> Result<()>
 where
-    F: Fn(&PathBuf) -> GitCommand,
+    F: Fn(&PathBuf) -> GitCommand + Sync,
 {
     let url_scheme = ctx.url_scheme();
 
-    // Handle dry-run mode separately
+    // Handle dry-run mode
     if ctx.is_dry_run() {
         for repo in repos {
             let cmd = build_command(repo);
@@ -160,213 +174,111 @@ where
         return Ok(());
     }
 
-    let max_conn = ctx.max_connections();
+    let max_workers = ctx.max_connections();
 
-    // Use unlimited (spawn-all) when limit is 0 or >= repo count
-    if max_conn == 0 || max_conn >= repos.len() {
-        run_parallel_unlimited(repos, &build_command, formatter, url_scheme)
+    // Determine whether to use concurrency limiting
+    // Skip semaphore when unlimited (0) or when workers >= repos
+    let use_semaphore = max_workers > 0 && max_workers < repos.len();
+
+    // Spawn threads, collect results with indices for ordered output
+    let results: Vec<(usize, PathBuf, Result<Output, std::io::Error>)> = if use_semaphore {
+        run_with_semaphore(repos, &build_command, url_scheme, max_workers)
     } else {
-        run_parallel_limited(repos, &build_command, formatter, url_scheme, max_conn)
-    }
-}
-
-/// Original spawn-first pattern: spawn all processes immediately, wait in order.
-fn run_parallel_unlimited<F>(
-    repos: &[PathBuf],
-    build_command: &F,
-    formatter: &dyn OutputFormatter,
-    url_scheme: Option<UrlScheme>,
-) -> Result<()>
-where
-    F: Fn(&PathBuf) -> GitCommand,
-{
-    // Phase 1: Spawn all git processes immediately (non-blocking)
-    let spawned: Vec<SpawnedCommand> = repos
-        .iter()
-        .map(|repo| {
-            let cmd = build_command(repo);
-            SpawnedCommand {
-                repo_path: repo.clone(),
-                child: cmd.spawn(url_scheme),
-            }
-        })
-        .collect();
-
-    // Phase 2: Wait for each process and print results in order
-    for spawned_cmd in spawned {
-        print_spawned_result(spawned_cmd, formatter);
-    }
-
-    Ok(())
-}
-
-/// Sliding window pattern: maintain at most max_conn active processes.
-fn run_parallel_limited<F>(
-    repos: &[PathBuf],
-    build_command: &F,
-    formatter: &dyn OutputFormatter,
-    url_scheme: Option<UrlScheme>,
-    max_conn: usize,
-) -> Result<()>
-where
-    F: Fn(&PathBuf) -> GitCommand,
-{
-    let mut next_to_spawn = 0;
-    let mut next_to_print = 0;
-    let mut active: Vec<ActiveProcess> = Vec::with_capacity(max_conn);
-    let mut completed: Vec<CompletedOutput> = Vec::new();
-
-    // Initial burst: spawn up to max_conn
-    while next_to_spawn < repos.len() && active.len() < max_conn {
-        spawn_process(
-            repos,
-            build_command,
-            url_scheme,
-            next_to_spawn,
-            &mut active,
-            &mut completed,
-        );
-        next_to_spawn += 1;
-    }
-
-    // Main loop: poll active processes, spawn new ones, print completed in order
-    while !active.is_empty() || next_to_print < repos.len() {
-        // Check each active process with try_wait
-        let mut i = 0;
-        while i < active.len() {
-            match active[i].child.try_wait() {
-                Ok(Some(status)) => {
-                    // Process finished - remove from active and collect output
-                    let mut proc = active.swap_remove(i);
-                    let output = collect_child_output(&mut proc.child, status);
-                    completed.push(CompletedOutput {
-                        index: proc.index,
-                        repo_path: proc.repo_path,
-                        output: Ok(output),
-                    });
-                    // Don't increment i - swap_remove moved last element here
-                }
-                Ok(None) => {
-                    // Still running
-                    i += 1;
-                }
-                Err(e) => {
-                    // Error checking status - treat as failed
-                    let proc = active.swap_remove(i);
-                    completed.push(CompletedOutput {
-                        index: proc.index,
-                        repo_path: proc.repo_path,
-                        output: Err(e),
-                    });
-                }
-            }
-        }
-
-        // Spawn new processes if we have capacity
-        while next_to_spawn < repos.len() && active.len() < max_conn {
-            spawn_process(
-                repos,
-                build_command,
-                url_scheme,
-                next_to_spawn,
-                &mut active,
-                &mut completed,
-            );
-            next_to_spawn += 1;
-        }
-
-        // Print any completed outputs that are ready (in order)
-        while let Some(pos) = completed.iter().position(|c| c.index == next_to_print) {
-            let c = completed.swap_remove(pos);
-            print_completed_output(&c, formatter);
-            next_to_print += 1;
-        }
-
-        // If all printed, we're done
-        if next_to_print >= repos.len() {
-            break;
-        }
-
-        // Small sleep to avoid busy-waiting
-        if !active.is_empty() {
-            thread::sleep(Duration::from_millis(5));
-        }
-    }
-
-    Ok(())
-}
-
-/// Spawn a single git process, adding to active or completed list.
-fn spawn_process<F>(
-    repos: &[PathBuf],
-    build_command: &F,
-    url_scheme: Option<UrlScheme>,
-    index: usize,
-    active: &mut Vec<ActiveProcess>,
-    completed: &mut Vec<CompletedOutput>,
-) where
-    F: Fn(&PathBuf) -> GitCommand,
-{
-    let repo = &repos[index];
-    let cmd = build_command(repo);
-    match cmd.spawn(url_scheme) {
-        Ok(child) => {
-            active.push(ActiveProcess {
-                index,
-                repo_path: repo.clone(),
-                child,
-            });
-        }
-        Err(e) => {
-            // Spawn failed - store error result immediately
-            completed.push(CompletedOutput {
-                index,
-                repo_path: repo.clone(),
-                output: Err(e),
-            });
-        }
-    }
-}
-
-/// Collect stdout/stderr from a child after try_wait returned Some.
-fn collect_child_output(child: &mut Child, status: std::process::ExitStatus) -> Output {
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-
-    if let Some(ref mut out) = child.stdout {
-        let _ = out.read_to_end(&mut stdout);
-    }
-    if let Some(ref mut err) = child.stderr {
-        let _ = err.read_to_end(&mut stderr);
-    }
-
-    Output {
-        status,
-        stdout,
-        stderr,
-    }
-}
-
-/// Print result from a SpawnedCommand (used by unlimited mode).
-fn print_spawned_result(spawned_cmd: SpawnedCommand, formatter: &dyn OutputFormatter) {
-    let name = repo_name(&spawned_cmd.repo_path);
-    let output_line = match spawned_cmd.child {
-        Ok(child) => match child.wait_with_output() {
-            Ok(output) => {
-                let formatted = formatter.format(&output);
-                format!("{} {}", format_repo_name(&name), formatted)
-            }
-            Err(e) => format!("{} ERROR: {}", format_repo_name(&name), e),
-        },
-        Err(e) => format!("{} ERROR: spawn failed: {}", format_repo_name(&name), e),
+        run_unlimited(repos, &build_command, url_scheme)
     };
-    println!("{}", output_line);
+
+    // Sort by index and print in discovery order
+    let mut sorted = results;
+    sorted.sort_by_key(|(idx, _, _)| *idx);
+
+    for (_, repo_path, result) in sorted {
+        print_result(&repo_path, &result, formatter);
+    }
+
+    Ok(())
 }
 
-/// Print a CompletedOutput (used by limited mode).
-fn print_completed_output(c: &CompletedOutput, formatter: &dyn OutputFormatter) {
-    let name = repo_name(&c.repo_path);
-    let output_line = match &c.output {
+/// Run with concurrency limiting via semaphore
+fn run_with_semaphore<F>(
+    repos: &[PathBuf],
+    build_command: &F,
+    url_scheme: Option<UrlScheme>,
+    max_workers: usize,
+) -> Vec<(usize, PathBuf, Result<Output, std::io::Error>)>
+where
+    F: Fn(&PathBuf) -> GitCommand + Sync,
+{
+    let semaphore = Arc::new(Semaphore::new(max_workers));
+
+    std::thread::scope(|s| {
+        let handles: Vec<_> = repos
+            .iter()
+            .enumerate()
+            .map(|(idx, repo)| {
+                let cmd = build_command(repo);
+                let sem = Arc::clone(&semaphore);
+                s.spawn(move || {
+                    // Acquire permit (blocks if max_workers processes already running)
+                    sem.acquire();
+
+                    let result = cmd
+                        .spawn(url_scheme)
+                        .and_then(|child| child.wait_with_output());
+
+                    // Release permit for next thread
+                    sem.release();
+
+                    (idx, repo.clone(), result)
+                })
+            })
+            .collect();
+
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect()
+    })
+}
+
+/// Run unlimited: spawn all processes immediately
+fn run_unlimited<F>(
+    repos: &[PathBuf],
+    build_command: &F,
+    url_scheme: Option<UrlScheme>,
+) -> Vec<(usize, PathBuf, Result<Output, std::io::Error>)>
+where
+    F: Fn(&PathBuf) -> GitCommand + Sync,
+{
+    std::thread::scope(|s| {
+        let handles: Vec<_> = repos
+            .iter()
+            .enumerate()
+            .map(|(idx, repo)| {
+                let cmd = build_command(repo);
+                s.spawn(move || {
+                    let result = cmd
+                        .spawn(url_scheme)
+                        .and_then(|child| child.wait_with_output());
+                    (idx, repo.clone(), result)
+                })
+            })
+            .collect();
+
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect()
+    })
+}
+
+/// Print result for a single repository
+fn print_result(
+    repo_path: &std::path::Path,
+    result: &Result<Output, std::io::Error>,
+    formatter: &dyn OutputFormatter,
+) {
+    let name = repo_name(repo_path);
+    let output_line = match result {
         Ok(output) => {
             let formatted = formatter.format(output);
             format!("{} {}", format_repo_name(&name), formatted)
@@ -398,5 +310,42 @@ mod tests {
         let result = format_repo_name("this-is-a-very-long-repository-name");
         assert_eq!(result, "[this-is-a-very-long--...]");
         assert_eq!(result.len(), 26);
+    }
+
+    /// Test that large output (>64KB) doesn't cause pipe buffer deadlock.
+    /// wait_with_output() internally spawns threads to drain pipes, so this should complete.
+    #[test]
+    fn test_large_output_no_deadlock() {
+        use std::process::Stdio;
+        use std::time::{Duration, Instant};
+
+        let start = Instant::now();
+        let timeout = Duration::from_secs(5);
+
+        // Spawn a process that outputs 100KB (more than 64KB pipe buffer)
+        let child = Command::new("head")
+            .args(["-c", "100000", "/dev/zero"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("Failed to spawn head command");
+
+        // wait_with_output handles pipe draining internally - no deadlock
+        let output = child.wait_with_output().expect("Failed to wait for output");
+
+        // Verify we got all the output
+        assert_eq!(
+            output.stdout.len(),
+            100000,
+            "Expected 100000 bytes, got {}",
+            output.stdout.len()
+        );
+
+        // Verify it didn't take suspiciously long (would indicate near-deadlock)
+        assert!(
+            start.elapsed() < timeout,
+            "Test took too long - possible deadlock: {:?}",
+            start.elapsed()
+        );
     }
 }

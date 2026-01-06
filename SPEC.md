@@ -74,6 +74,8 @@ A conforming implementation:
 
 3. The implementation MUST capture both stdout and stderr from git subprocesses.
 
+4. The implementation MUST handle stdout and stderr pipes to prevent buffer deadlock. When capturing output, pipes MUST be drained concurrently with process execution. This can be achieved through non-blocking I/O, dedicated reader threads, or stdlib facilities that handle this internally (e.g., Rust's `wait_with_output()`).
+
 ### 3.2 Parallelism
 
 1. Commands MUST be executed in parallel across repositories.
