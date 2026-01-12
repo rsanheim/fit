@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(zig build:*)",
+      "Bash(shards build:*)",
+      "Bash(crystal spec:*)",
+      "Bash(hyperfine:*)",
+      "Bash(script/build:*)",
+      "Bash(script/test:*)",
+      "Bash(./bin/fit-rust:*)",
+      "Bash(./bin/fit-zig:*)",
+      "Bash(./bin/fit-crystal:*)",
+      "Bash(./bin/fit:*)"
+    ]
+  }
+}
