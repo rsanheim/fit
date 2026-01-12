@@ -81,6 +81,9 @@ script/install -t rust       # installs release build as ~/.local/bin/fit
 
 ## Key Implementation Details
 
+### Use library features over custom code
+Prefer using built-in library features (clap's help system, std library utilities, etc.) over writing custom implementations. Customize library behavior through their extension points rather than reimplementing. Less code = fewer bugs.
+
 ### Dry-run mode
 Dry-run output must be generated as close to actual execution as possible (same code path that builds the real command). Never construct dry-run output separately from real execution logic.
 

@@ -6,6 +6,7 @@ use std::process::Command;
 use std::os::unix::process::CommandExt;
 
 mod commands;
+mod meta;
 mod repo;
 mod runner;
 
@@ -56,6 +57,12 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Fit internal commands (help, version info)
+    Meta {
+        /// Subcommand (help is the only option)
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
     /// Pass through to git (any other command)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -83,12 +90,22 @@ fn passthrough_to_git() -> ! {
 }
 
 fn main() -> Result<()> {
-    // Passthrough mode: if we're inside a git repo, just exec git directly
-    if is_inside_git_repo() {
+    // Check if first arg is "meta" - if so, skip passthrough mode
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let is_meta = args.first().map(|s| s == "meta").unwrap_or(false);
+
+    // Passthrough mode: if we're inside a git repo (and not a meta command), exec git directly
+    if !is_meta && is_inside_git_repo() {
         passthrough_to_git();
     }
 
     let cli = Cli::parse();
+
+    // Handle meta command early (doesn't require repos)
+    if let Some(Commands::Meta { args }) = &cli.command {
+        meta::run(args);
+        return Ok(());
+    }
 
     let repos = find_git_repos()?;
     if repos.is_empty() {
@@ -118,6 +135,7 @@ fn main() -> Result<()> {
         Some(Commands::Fetch { args }) => fetch::run(&ctx, &repos, &args),
         Some(Commands::Status { args }) => status::run(&ctx, &repos, &args),
         Some(Commands::External(args)) => passthrough::run(&ctx, &repos, &args),
+        Some(Commands::Meta { .. }) => unreachable!(), // handled above
         None => {
             // No command given - show help
             println!("No command specified. Use --help for usage information.");
