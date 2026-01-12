@@ -103,48 +103,27 @@ pub const GitCommand = struct {
             argv.append(self.allocator, arg) catch return .{ .err = .{ .repo_name = repo.repoName(self.repo_path), .message = "failed to build argv" } };
         }
 
-        var child = std.process.Child.init(argv.items, self.allocator);
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-
-        child.spawn() catch |e| {
+        // Collect stdout/stderr without pipe deadlock.
+        const run_result = std.process.Child.run(.{
+            .allocator = self.allocator,
+            .argv = argv.items,
+            .max_output_bytes = 1024 * 1024,
+        }) catch |e| {
             return .{ .err = .{
                 .repo_name = repo.repoName(self.repo_path),
                 .message = @errorName(e),
             } };
         };
 
-        // Read all output using the File's readToEndAlloc
-        const stdout = child.stdout.?.readToEndAlloc(self.allocator, 1024 * 1024) catch |e| {
-            return .{ .err = .{
-                .repo_name = repo.repoName(self.repo_path),
-                .message = @errorName(e),
-            } };
+        const success = switch (run_result.term) {
+            .Exited => |code| code == 0,
+            else => false,
         };
-
-        const stderr = child.stderr.?.readToEndAlloc(self.allocator, 1024 * 1024) catch |e| {
-            self.allocator.free(stdout);
-            return .{ .err = .{
-                .repo_name = repo.repoName(self.repo_path),
-                .message = @errorName(e),
-            } };
-        };
-
-        const term = child.wait() catch |e| {
-            self.allocator.free(stdout);
-            self.allocator.free(stderr);
-            return .{ .err = .{
-                .repo_name = repo.repoName(self.repo_path),
-                .message = @errorName(e),
-            } };
-        };
-
-        const success = term.Exited == 0;
 
         return .{ .executed = .{
             .repo_name = repo.repoName(self.repo_path),
-            .stdout = stdout,
-            .stderr = stderr,
+            .stdout = run_result.stdout,
+            .stderr = run_result.stderr,
             .success = success,
         } };
     }
@@ -293,7 +272,7 @@ pub fn runParallel(
     var stdout_mutex = std.Thread.Mutex{};
 
     // Calculate work distribution
-    const num_workers = @min(ctx.workers, repos.len);
+    const num_workers = effectiveWorkerCount(ctx.workers, repos.len);
     const repos_per_worker = repos.len / num_workers;
     const extra_repos = repos.len % num_workers;
 
@@ -329,6 +308,11 @@ pub fn runParallel(
     }
 }
 
+fn effectiveWorkerCount(workers: usize, repo_count: usize) usize {
+    std.debug.assert(repo_count > 0);
+    return if (workers == 0) repo_count else @min(workers, repo_count);
+}
+
 test "formatRepoName short name" {
     const allocator = std.testing.allocator;
     const result = try formatRepoName(allocator, "my-repo");
@@ -345,4 +329,11 @@ test "formatRepoName truncated" {
     // Truncated to 20 chars + "-..." = 24 chars, wrapped in brackets
     try std.testing.expectEqualStrings("[this-is-a-very-long--...]", result);
     try std.testing.expect(result.len == 26);
+}
+
+test "effectiveWorkerCount treats 0 as unlimited" {
+    try std.testing.expectEqual(@as(usize, 2), effectiveWorkerCount(0, 2));
+    try std.testing.expectEqual(@as(usize, 1), effectiveWorkerCount(0, 1));
+    try std.testing.expectEqual(@as(usize, 2), effectiveWorkerCount(99, 2));
+    try std.testing.expectEqual(@as(usize, 1), effectiveWorkerCount(1, 2));
 }

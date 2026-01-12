@@ -12,7 +12,10 @@ pub fn isInsideGitRepo(allocator: std.mem.Allocator) bool {
 
     child.spawn() catch return false;
     const term = child.wait() catch return false;
-    return term.Exited == 0;
+    return switch (term) {
+        .Exited => |code| code == 0,
+        else => false,
+    };
 }
 
 /// Find all git repositories in the current directory (depth 1).
