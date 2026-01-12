@@ -20,9 +20,15 @@ A conforming implementation:
 
 ## 1. Operating Modes
 
+### 1.0 'fit meta'
+
+Before anything else, the implementation MUST check for an initial subcommand of 'meta' - ie `fit meta` or `fit meta <subcommand>`.  If found, the implementation MUST pass all args and options to `fit` itself and NOT passthrough to git.
+
+If not found, the implementation MUST continue with the next operating mode.
+
 ### 1.1 Passthrough Mode
 
-1. Before any other operation, the implementation MUST check if the current working directory is inside a git repository.
+1. Next, the implementation MUST check if the current working directory is inside a git repository.
 
 2. The check MUST be performed using `git rev-parse --git-dir` or equivalent logic that correctly handles worktrees, bare repositories, and the `GIT_DIR` environment variable.
 
@@ -60,7 +66,7 @@ A conforming implementation:
 
 ### 2.2 Empty Results
 
-1. If no repositories are discovered, the implementation MUST print a message to stdout and exit with status 0.
+1. If no repositories are discovered, the implementation MUST print a message to stdout and exit with status 9.
 
 2. The message SHOULD be: "No git repositories found in current directory"
 
@@ -98,7 +104,7 @@ A conforming implementation:
 
 ### 4.1 General Requirements
 
-1. The following commands MUST have optimized, single-line output:
+1. The following commands MUST have human-readable, optimized, single-line output:
    * `status`
    * `pull`
    * `fetch`
@@ -226,7 +232,7 @@ The following symbols are RECOMMENDED for status output:
 
 2. The implementation MAY exit non-zero if any individual repository operation failed.
 
-3. Exit code 1 SHOULD be used for fit-level failures (invalid arguments, etc.).
+3. Exit code 9 SHOULD be used for fit-level failures (invalid arguments, etc.).
 
 ## Appendix A: Grammar
 
@@ -243,7 +249,7 @@ OPTIONS:
     -V, --version
 
 COMMAND:
-    status | pull | fetch | <git-command>
+    meta | status | pull | fetch | <git-command>
 
 ARGS:
     Passed through to git
@@ -257,7 +263,12 @@ ARGS:
 
 ## Appendix C: Changelog
 
-### v0.1.0 (Ifitial Draft)
+### v0.1.0 (Initial Draft)
 
 * Ifitial specification based on Rust and Zig implementations
 * Added Passthrough Mode (Section 1.1)
+
+### v0.1.1 (2026-01-12)
+
+* Added `fit meta` Mode (Section 1.0)
+* Added update exit codes (Section 8)
