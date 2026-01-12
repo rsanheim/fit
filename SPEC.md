@@ -20,13 +20,9 @@ A conforming implementation:
 
 ## 1. Operating Modes
 
-### 1.0 'meta' mode
-
-1. If a subcommand of 'meta' is provided, a la `fit meta`, or `fit meta <subcommand>`, the args MUST be processed and handled by fit itself, and NOT passed to git.
-
 ### 1.1 Passthrough Mode
 
-1. For any other operation, the implementation MUST check if the current working directory is inside a git repository.
+1. Before any other operation, the implementation MUST check if the current working directory is inside a git repository.
 
 2. The check MUST be performed using `git rev-parse --git-dir` or equivalent logic that correctly handles worktrees, bare repositories, and the `GIT_DIR` environment variable.
 
@@ -82,7 +78,7 @@ A conforming implementation:
 
 ### 3.2 Parallelism
 
-1. Commands SHOULD be executed in parallel across repositories unless otherwise specified.
+1. Commands MUST be executed in parallel across repositories.
 
 2. The default maximum concurrent processes SHOULD be 8.
 

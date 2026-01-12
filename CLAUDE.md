@@ -8,9 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Core Behavior
 
-* **Meta mode**: `fit meta <subcommand>` is handled by fit itself, not passed to git
-* **Passthrough mode**: when inside a git repo, fit passes all args directly to git
-* **Multi-repo mode**: when NOT inside a git repo, discovers sub-repos (depth 1) and runs commands across all
+* **Basic mode**: wraps `git` and runs it for all sub-repos (depth 1) with args passed through
 * **Optimized commands** (`pull`, `fetch`, `status`): run in parallel with condensed single-line output per repo
 * **Pass-through**: any unrecognized command/args go directly to `git`
 
