@@ -27,36 +27,6 @@ def passthrough_to_git(args : Array(String))
   Process.exec("git", args)
 end
 
-def print_help
-  puts <<-HELP
-  fit - parallel git across many repositories
-
-  USAGE:
-      fit [OPTIONS] <COMMAND> [ARGS...]
-
-  OPTIONS:
-      -n, --workers <NUM>   Number of parallel workers (default: 8, 0=unlimited)
-      --dry-run             Print exact commands without executing
-      --ssh                 Use SSH URLs
-      --https               Use HTTPS URLs
-      -h, --help            Print help information
-      -V, --version         Print version
-
-  COMMANDS:
-      pull      Git pull with condensed output
-      fetch     Git fetch with condensed output
-      status    Git status with condensed output
-      <any>     Pass-through to git verbatim
-
-  EXAMPLES:
-      fit pull                      Pull all repos
-      fit status                    Status of all repos
-      fit --dry-run pull            Show commands without executing
-      fit -n 4 fetch                Fetch with 4 workers
-      fit checkout main             Switch all repos to main
-  HELP
-end
-
 def parse_args(argv : Array(String)) : Options
   options = Options.new
   remaining_args = [] of String
@@ -79,7 +49,7 @@ def parse_args(argv : Array(String)) : Options
     end
 
     p.on("-h", "--help", "Print help") do
-      print_help
+      Meta.help
       exit 0
     end
 
@@ -126,7 +96,7 @@ def main
 
   command = options.command
   if command.nil?
-    print_help
+    Meta.help
     exit 1
   end
 

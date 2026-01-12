@@ -24,7 +24,7 @@ A conforming implementation:
 
 Before anything else, the implementation MUST check for an initial subcommand of 'meta' - ie `fit meta` or `fit meta <subcommand>`.  If found, the implementation MUST pass all args and options to `fit` itself and NOT passthrough to git.
 
-`fit meta help` MUST print the help message for `fit` itself, including the version of fit and the version of the underlying git implementation.
+`fit meta` (with no subcommand) and `fit meta help` MUST print the help message for `fit` itself, including the version of fit and the version of the underlying git implementation.
 
 If `fit meta` is not found, the implementation MUST continue with the next operating mode.
 
