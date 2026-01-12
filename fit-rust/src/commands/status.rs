@@ -15,7 +15,6 @@ impl OutputFormatter for StatusFormatter {
             return stderr.lines().next().unwrap_or("unknown error").to_string();
         }
 
-        // Parse porcelain output to count file states
         let mut modified = 0;
         let mut added = 0;
         let mut deleted = 0;
@@ -30,13 +29,11 @@ impl OutputFormatter for StatusFormatter {
             let index_status = line.chars().next().unwrap_or(' ');
             let worktree_status = line.chars().nth(1).unwrap_or(' ');
 
-            // Untracked files
             if index_status == '?' {
                 untracked += 1;
                 continue;
             }
 
-            // Check index status (staged changes)
             match index_status {
                 'M' => modified += 1,
                 'A' => added += 1,
@@ -55,7 +52,6 @@ impl OutputFormatter for StatusFormatter {
             }
         }
 
-        // Build human-readable summary
         if modified == 0 && added == 0 && deleted == 0 && untracked == 0 && renamed == 0 {
             return "clean".to_string();
         }

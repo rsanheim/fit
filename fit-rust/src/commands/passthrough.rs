@@ -19,7 +19,6 @@ impl OutputFormatter for PassthroughFormatter {
             return format!("ERROR: {}", error_line);
         }
 
-        // For passthrough, just show first non-empty line or "ok"
         stdout
             .lines()
             .chain(stderr.lines())

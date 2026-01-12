@@ -168,7 +168,6 @@ where
 {
     let url_scheme = ctx.url_scheme();
 
-    // Handle dry-run mode
     if ctx.is_dry_run() {
         for repo in repos {
             let cmd = build_command(repo);
@@ -179,15 +178,12 @@ where
 
     let max_workers = ctx.max_connections();
 
-    // Create optional semaphore for concurrency limiting
-    // None when unlimited (0) or when workers >= repos
     let semaphore = if max_workers > 0 && max_workers < repos.len() {
         Some(Arc::new(Semaphore::new(max_workers)))
     } else {
         None
     };
 
-    // Results storage: None means "not yet received"
     let mut results: Vec<Option<(PathBuf, Result<Output, std::io::Error>)>> =
         (0..repos.len()).map(|_| None).collect();
     let mut next_to_print: usize = 0;
@@ -195,7 +191,6 @@ where
     let (tx, rx) = mpsc::channel();
 
     std::thread::scope(|s| {
-        // Spawn threads that send results to channel as they complete
         for (idx, repo) in repos.iter().enumerate() {
             let tx = tx.clone();
             let cmd = build_command(repo);
@@ -216,13 +211,11 @@ where
                 let _ = tx.send((idx, repo, result));
             });
         }
-        drop(tx); // Close sender so rx iterator ends when all threads complete
+        drop(tx);
 
-        // Receive and print in-order as contiguous results arrive
         for (idx, repo, result) in rx {
             results[idx] = Some((repo, result));
 
-            // Print all contiguous completed results from the head
             while next_to_print < results.len() {
                 if let Some((ref repo_path, ref res)) = results[next_to_print] {
                     print_result(repo_path, res, formatter);

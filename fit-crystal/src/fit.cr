@@ -74,20 +74,16 @@ def parse_args(argv : Array(String)) : Options
 end
 
 def main
-  # Meta mode: handle fit-internal commands BEFORE passthrough check
-  # Per SPEC.md 1.0: "Before anything else..."
   if Meta.dispatch(ARGV)
     exit 0
   end
 
-  # Passthrough mode: if inside a git repo, just exec git
   if is_inside_git_repo?
     passthrough_to_git(ARGV)
   end
 
   options = parse_args(ARGV)
 
-  # Discover repositories
   repos = Repo.discover
   if repos.empty?
     puts "No git repositories found in current directory"
@@ -100,7 +96,6 @@ def main
     exit 1
   end
 
-  # Run the appropriate command
   case command
   when "status"
     Runner.run(repos, Commands::Status.new, options)

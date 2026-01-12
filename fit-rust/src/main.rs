@@ -90,18 +90,15 @@ fn passthrough_to_git() -> ! {
 }
 
 fn main() -> Result<()> {
-    // Check if first arg is "meta" - if so, skip passthrough mode
     let args: Vec<String> = std::env::args().skip(1).collect();
     let is_meta = args.first().map(|s| s == "meta").unwrap_or(false);
 
-    // Passthrough mode: if we're inside a git repo (and not a meta command), exec git directly
     if !is_meta && is_inside_git_repo() {
         passthrough_to_git();
     }
 
     let cli = Cli::parse();
 
-    // Handle meta command early (doesn't require repos)
     if let Some(Commands::Meta { args }) = &cli.command {
         meta::run(args);
         return Ok(());

@@ -1,11 +1,8 @@
 require "./repo"
 
-# Base class for all commands
 abstract class Command
-  # Build git arguments for this command
   abstract def git_args(repo : String) : Array(String)
 
-  # Format the output from git into a single line
   abstract def format_output(stdout : String, stderr : String, success : Bool) : String
 end
 
@@ -37,7 +34,6 @@ module Runner
   def self.run(repos : Array(String), command : Command, options : Options)
     url_scheme = options.url_scheme
 
-    # Handle dry-run mode
     if options.dry_run
       repos.each do |repo|
         args = build_git_args(repo, command.git_args(repo), url_scheme)
@@ -55,7 +51,6 @@ module Runner
     end
   end
 
-  # Build the full git argument list including -C and scheme overrides
   private def self.build_git_args(repo : String, cmd_args : Array(String), url_scheme : UrlScheme?) : Array(String)
     args = [] of String
 
@@ -72,7 +67,6 @@ module Runner
     args
   end
 
-  # Spawn a git process for a repo
   private def self.spawn_process(repo : String, command : Command, url_scheme : UrlScheme?, index : Int32) : RunningProcess
     args = build_git_args(repo, command.git_args(repo), url_scheme)
     stdout = IO::Memory.new
@@ -138,7 +132,6 @@ module Runner
         end
       end
 
-      # Spawn new processes if we have capacity
       while next_to_spawn < repos.size && active.size < max_workers
         active << spawn_process(repos[next_to_spawn], command, url_scheme, next_to_spawn)
         next_to_spawn += 1
@@ -155,7 +148,6 @@ module Runner
         next_to_print += 1
       end
 
-      # If all printed, we're done
       break if next_to_print >= repos.size
 
       # Small sleep to avoid busy-waiting

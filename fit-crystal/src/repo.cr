@@ -18,7 +18,6 @@ module Repo
     repos
   end
 
-  # Extract the repo name from a full path
   def self.name(path : String) : String
     File.basename(path)
   end

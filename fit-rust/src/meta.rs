@@ -23,7 +23,6 @@ fn print_help() {
     );
     println!();
 
-    // Print clap's generated help (without the version line since we printed our own)
     let mut cmd = Cli::command();
     cmd.print_help().expect("failed to print help");
     println!();

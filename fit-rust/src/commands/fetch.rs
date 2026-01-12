@@ -15,7 +15,6 @@ impl OutputFormatter for FetchFormatter {
             return stderr.lines().next().unwrap_or("unknown error").to_string();
         }
 
-        // Check if there's any meaningful output
         let has_output = stdout.lines().any(|l| !l.trim().is_empty())
             || stderr.lines().any(|l| !l.trim().is_empty() && !l.starts_with("From"));
 
@@ -23,7 +22,6 @@ impl OutputFormatter for FetchFormatter {
             return "no new commits".to_string();
         }
 
-        // Count branches and tags in single pass
         let (branch_count, tag_count) = stdout
             .lines()
             .filter(|l| l.contains("->") || l.contains("[new"))
