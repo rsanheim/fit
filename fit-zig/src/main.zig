@@ -1,12 +1,13 @@
 const std = @import("std");
 const repo = @import("repo.zig");
 const runner = @import("runner.zig");
+const meta = @import("meta.zig");
 const pull = @import("commands/pull.zig");
 const fetch = @import("commands/fetch.zig");
 const status = @import("commands/status.zig");
 const passthrough = @import("commands/passthrough.zig");
 
-const VERSION = "0.3.0";
+pub const VERSION = "0.3.0";
 const DEFAULT_WORKERS: usize = 8;
 
 const Command = enum {
@@ -215,9 +216,27 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Passthrough mode: if we're inside a git repo, just exec git directly
-    if (repo.isInsideGitRepo(allocator)) {
+    // Quick peek at first arg to detect meta (must happen before passthrough check)
+    var peek_iter = try std.process.argsWithAllocator(allocator);
+    defer peek_iter.deinit();
+    _ = peek_iter.next(); // skip program name
+    const first_arg = peek_iter.next();
+    const is_meta = if (first_arg) |arg| std.mem.eql(u8, arg, "meta") else false;
+
+    // Passthrough mode: if we're inside a git repo AND not meta, exec git directly
+    if (!is_meta and repo.isInsideGitRepo(allocator)) {
         passthroughToGit(allocator);
+    }
+
+    // Handle meta command early
+    if (is_meta) {
+        var meta_args = std.ArrayList([]const u8).empty;
+        defer meta_args.deinit(allocator);
+        while (peek_iter.next()) |arg| {
+            try meta_args.append(allocator, arg);
+        }
+        try meta.run(allocator, meta_args.items);
+        return;
     }
 
     const args = try parseArgs(allocator);
@@ -276,4 +295,5 @@ test {
     // Run all module tests
     _ = @import("repo.zig");
     _ = @import("runner.zig");
+    _ = @import("meta.zig");
 }
