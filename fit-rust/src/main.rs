@@ -14,7 +14,7 @@ use repo::{find_git_repos, is_inside_git_repo};
 use runner::{ExecutionContext, UrlScheme};
 
 #[derive(Parser)]
-#[command(name = "nit", version, about = "parallel git across many repositories")]
+#[command(name = "fit", version, about = "parallel git across many repositories")]
 struct Cli {
     /// Print exact commands without executing
     #[arg(long)]
@@ -61,14 +61,14 @@ enum Commands {
     External(Vec<String>),
 }
 
-/// Exec git with all original args, replacing the nit process.
-/// This is used when nit is invoked from inside a git repository.
+/// Exec git with all original args, replacing the fit process.
+/// This is used when fit is invoked from inside a git repository.
 #[cfg(unix)]
 fn passthrough_to_git() -> ! {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let err = Command::new("git").args(&args).exec();
     // exec() only returns on error
-    eprintln!("nit: failed to exec git: {}", err);
+    eprintln!("fit: failed to exec git: {}", err);
     std::process::exit(1);
 }
 
@@ -108,7 +108,7 @@ fn main() -> Result<()> {
 
     if cli.dry_run {
         println!(
-            "[nit v{}] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.",
+            "[fit v{}] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.",
             env!("CARGO_PKG_VERSION")
         );
     }

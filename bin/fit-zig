@@ -2,4 +2,4 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${SCRIPT_DIR}/../nit-crystal/bin/nit" "$@"
+exec "${SCRIPT_DIR}/../fit-zig/zig-out/bin/fit" "$@"

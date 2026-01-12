@@ -1,28 +1,28 @@
-# knit - Planned Future Functionality
+# fit - Planned Future Functionality
 
 **Status: Not yet implemented**
 
-This document describes planned functionality for `knit`, a companion CLI to `nit` that operates on user-configured repository "roots" rather than the current working directory.
+This document describes planned functionality for `fit`, a companion CLI to `fit` that operates on user-configured repository "roots" rather than the current working directory.
 
 ---
 
-## knit - Roots-Based Multi-Repo Git
+## fit - Roots-Based Multi-Repo Git
 
 ```
 NAME
-    knit - parallel git operations across registered repository roots
+    fit - parallel git operations across registered repository roots
 
 SYNOPSIS
-    knit [OPTIONS] <command> [<args>...]
-    knit roots [add|rm|list] [<path>]
-    knit --help | --version
+    fit [OPTIONS] <command> [<args>...]
+    fit roots [add|rm|list] [<path>]
+    fit --help | --version
 
 DESCRIPTION
-    knit operates on repositories discovered from user-configured "roots".
-    Unlike nit, which starts from CWD, knit uses a persistent configuration
+    fit operates on repositories discovered from user-configured "roots".
+    Unlike fit, which starts from CWD, fit uses a persistent configuration
     to define where your repositories live.
 
-    Run knit from anywhere - it always uses your configured roots.
+    Run fit from anywhere - it always uses your configured roots.
 
 OPTIONS
     -d, --depth <N|all>
@@ -43,42 +43,42 @@ OPTIONS
         Show version.
 
 ROOT MANAGEMENT
-    knit roots
+    fit roots
         List all configured roots.
 
-    knit roots add <path>
+    fit roots add <path>
         Add a directory as a root. Path is canonicalized and stored.
 
-    knit roots rm <path>
+    fit roots rm <path>
         Remove a root from configuration.
 
 EXAMPLES
-    knit roots add ~/src
+    fit roots add ~/src
         Register ~/src as a root directory.
 
-    knit roots add ~/work
+    fit roots add ~/work
         Register another root.
 
-    knit roots
+    fit roots
         List all roots:
           ~/src
           ~/work
 
-    knit status
+    fit status
         Status of all repos under all roots.
 
-    knit pull -p
+    fit pull -p
         Pull all repos from all roots.
 
-    knit -d all fetch
+    fit -d all fetch
         Fetch repos recursively within each root.
 
-    knit roots rm ~/old-projects
+    fit roots rm ~/old-projects
         Remove a root.
 
 CONFIGURATION
     Roots are stored in:
-        ~/.config/nit/roots.toml    (Linux/macOS XDG)
+        ~/.config/fit/roots.toml    (Linux/macOS XDG)
 
     Format:
         [[roots]]
@@ -110,22 +110,22 @@ Single binary with symlink detection. The binary inspects `argv[0]` to determine
 which mode to run in:
 
 ```
-nit (main binary)
-knit -> nit (symlink)
+fit (main binary)
+fit -> fit (symlink)
 ```
 
 **Detection logic** (works across all implementations):
 
 ```
-basename = get_basename(argv[0])  # strip path, get "nit" or "knit"
-if basename contains "knit":
-    mode = KNIT (roots-based)
+basename = get_basename(argv[0])  # strip path, get "fit" or "fit"
+if basename contains "fit":
+    mode = FIT (roots-based)
 else:
-    mode = NIT (CWD-based)
+    mode = FIT (CWD-based)
 ```
 
 This approach works for:
-* Direct invocation: `./nit`, `./knit`
-* Symlinks: `knit -> nit`
-* Full paths: `/usr/local/bin/knit`
+* Direct invocation: `./fit`, `./fit`
+* Symlinks: `fit -> fit`
+* Full paths: `/usr/local/bin/fit`
 * Wrapper scripts named appropriately

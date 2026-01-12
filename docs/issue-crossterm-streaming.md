@@ -4,7 +4,7 @@
 The current Rust runner buffers all command outputs until *every* repo completes, which removes streaming output and can feel like a hang on long-running repos. This issue proposes adding `crossterm` to support lightweight cursor movement and per-line updates, enabling real-time output while preserving alphabetical ordering. It also outlines a simpler interim fix (ordered streaming without cursor movement) and the tradeoffs.
 
 ## Background
-Recent changes in `nit-rust/src/runner.rs` switched to a thread-per-process model and collect all results into a `Vec`, then sort and print. This avoids pipe deadlocks but has an important UX regression:
+Recent changes in `fit-rust/src/runner.rs` switched to a thread-per-process model and collect all results into a `Vec`, then sort and print. This avoids pipe deadlocks but has an important UX regression:
 
 - **No streaming output**: output only appears after all repos finish.
 - **Perceived hang**: a slow repo blocks visibility of all other results.
@@ -46,7 +46,7 @@ Implement ordered streaming without cursor updates:
 This restores some streaming but still suffers head-of-line blocking when early repos are slow.
 
 ## Implementation notes
-- Introduce a small output module (e.g., `nit-rust/src/output.rs`) with two strategies:
+- Introduce a small output module (e.g., `fit-rust/src/output.rs`) with two strategies:
   - `PlainPrinter`: current stdout printing.
   - `CursorPrinter`: crossterm-based line updates.
 - The runner should return results as they complete (via channels), not after all joins.
@@ -54,7 +54,7 @@ This restores some streaming but still suffers head-of-line blocking when early 
 - The cursor renderer can update any finished line immediately; the plain renderer can emit in order as soon as possible.
 
 ## Dependencies
-- Add `crossterm` to `nit-rust/Cargo.toml`.
+- Add `crossterm` to `fit-rust/Cargo.toml`.
 - Ensure compilation on macOS/Linux/Windows.
 
 ## Acceptance criteria
@@ -68,5 +68,5 @@ This restores some streaming but still suffers head-of-line blocking when early 
 - Need to ensure `stderr` is also coordinated (e.g., print errors in-place or fallback to plain mode).
 
 ## References
-- `nit-rust/src/runner.rs`: current buffering and threading model.
+- `fit-rust/src/runner.rs`: current buffering and threading model.
 - `SPEC.md`: pipe deadlock handling requirement.

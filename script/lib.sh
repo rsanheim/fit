@@ -1,16 +1,16 @@
-# Shared library for nit scripts
+# Shared library for fit scripts
 # Source this file: source "$(dirname "$0")/lib.sh"
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NIT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BIN_DIR="${NIT_ROOT}/bin"
+FIT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BIN_DIR="${FIT_ROOT}/bin"
 
-# Discover all executable nit implementations (full paths)
+# Discover all executable fit implementations (full paths)
 discover_implementations() {
     local impls=()
-    for impl in "${BIN_DIR}"/nit-*; do
+    for impl in "${BIN_DIR}"/fit-*; do
         [[ -x "$impl" ]] && impls+=("$impl")
     done
     echo "${impls[@]}"
@@ -18,14 +18,14 @@ discover_implementations() {
 
 # Discover implementation names (e.g., "rust", "zig")
 discover_impl_names() {
-    for impl in "${BIN_DIR}"/nit-*; do
-        [[ -x "$impl" ]] && basename "$impl" | sed 's/nit-//'
+    for impl in "${BIN_DIR}"/fit-*; do
+        [[ -x "$impl" ]] && basename "$impl" | sed 's/fit-//'
     done
 }
 
-# Discover implementation directories (full paths to nit-* dirs)
+# Discover implementation directories (full paths to fit-* dirs)
 discover_impl_dirs() {
-    for dir in "${NIT_ROOT}/nit-"*; do
+    for dir in "${FIT_ROOT}/fit-"*; do
         [[ -d "$dir" ]] && echo "$dir"
     done
 }
@@ -76,16 +76,16 @@ get_test_cmd() {
 # Get implementation directory for type
 get_impl_dir() {
     local impl="$1"
-    echo "${NIT_ROOT}/nit-${impl}"
+    echo "${FIT_ROOT}/fit-${impl}"
 }
 
 # Get binary output path for implementation type (after release build)
 get_binary_path() {
     local impl="$1"
     case "$impl" in
-        rust)    echo "${NIT_ROOT}/nit-rust/target/release/nit" ;;
-        zig)     echo "${NIT_ROOT}/nit-zig/zig-out/bin/nit" ;;
-        crystal) echo "${NIT_ROOT}/nit-crystal/bin/nit" ;;
+        rust)    echo "${FIT_ROOT}/fit-rust/target/release/fit" ;;
+        zig)     echo "${FIT_ROOT}/fit-zig/zig-out/bin/fit" ;;
+        crystal) echo "${FIT_ROOT}/fit-crystal/bin/fit" ;;
         *)       return 1 ;;
     esac
 }

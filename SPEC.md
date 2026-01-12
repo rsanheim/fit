@@ -1,11 +1,11 @@
-# nit Specification
+# fit Specification
 
 Version: 0.1.0
 Status: Draft
 
 ## Abstract
 
-This document specifies the behavior of `nit`, a command-line interface for running parallel git operations across multiple repositories. Implementations in any language MUST conform to this specification to be considered compliant.
+This document specifies the behavior of `fit`, a command-line interface for running parallel git operations across multiple repositories. Implementations in any language MUST conform to this specification to be considered compliant.
 
 ## Conformance
 
@@ -28,11 +28,11 @@ A conforming implementation:
 
 3. If inside a git repository, the implementation MUST exec git with all original command-line arguments unchanged.
 
-4. In passthrough mode, nit-specific flags (`--dry-run`, `--workers`, etc.) MUST be passed through to git verbatim. The implementation MUST NOT parse or interpret these flags.
+4. In passthrough mode, fit-specific flags (`--dry-run`, `--workers`, etc.) MUST be passed through to git verbatim. The implementation MUST NOT parse or interpret these flags.
 
 5. The implementation MUST NOT check for sub-repositories when in passthrough mode.
 
-6. The exec MUST replace the nit process with git such that exit codes and signals are preserved transparently.
+6. The exec MUST replace the fit process with git such that exit codes and signals are preserved transparently.
 
 ### 1.2 Multi-Repository Mode
 
@@ -151,7 +151,7 @@ A conforming implementation:
 
 3. The dry-run output MUST be generated from the same code path that builds actual commands.
 
-4. Dry-run output SHOULD include a header indicating dry-run mode and the nit version.
+4. Dry-run output SHOULD include a header indicating dry-run mode and the fit version.
 
 #### 6.1.1 Dry-Run Implementation Constraint
 
@@ -222,16 +222,16 @@ The following symbols are RECOMMENDED for status output:
 
 ## 8. Exit Codes
 
-1. Exit code 0 MUST indicate the nit command itself succeeded.
+1. Exit code 0 MUST indicate the fit command itself succeeded.
 
 2. The implementation MAY exit non-zero if any individual repository operation failed.
 
-3. Exit code 1 SHOULD be used for nit-level failures (invalid arguments, etc.).
+3. Exit code 1 SHOULD be used for fit-level failures (invalid arguments, etc.).
 
 ## Appendix A: Grammar
 
 ```
-nit [OPTIONS] <COMMAND> [ARGS...]
+fit [OPTIONS] <COMMAND> [ARGS...]
 
 OPTIONS:
     --dry-run
@@ -257,7 +257,7 @@ ARGS:
 
 ## Appendix C: Changelog
 
-### v0.1.0 (Initial Draft)
+### v0.1.0 (Ifitial Draft)
 
-* Initial specification based on Rust and Zig implementations
+* Ifitial specification based on Rust and Zig implementations
 * Added Passthrough Mode (Section 1.1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build nit implementations
+# Build fit implementations
 source "$(dirname "$0")/lib.sh"
 
 TYPE=""
@@ -7,7 +7,7 @@ MODE="release"
 
 show_help() {
     cat <<EOF
-build - Build nit implementations
+build - Build fit implementations
 
 Usage: build [options]
 

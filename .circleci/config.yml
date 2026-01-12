@@ -11,7 +11,7 @@ jobs:
     steps:
       - checkout
       - rust/test:
-          working_directory: ~/project/nit-rust
+          working_directory: ~/project/fit-rust
 
   test-crystal:
     docker:
@@ -21,11 +21,11 @@ jobs:
       - run:
           name: Install dependencies
           command: shards install
-          working_directory: nit-crystal
+          working_directory: fit-crystal
       - run:
           name: Run specs
           command: crystal spec
-          working_directory: nit-crystal
+          working_directory: fit-crystal
 
   test-zig:
     docker:
@@ -41,7 +41,7 @@ jobs:
       - run:
           name: Run tests
           command: zig build test
-          working_directory: nit-zig
+          working_directory: fit-zig
 
 workflows:
   test:

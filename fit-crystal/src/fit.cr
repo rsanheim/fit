@@ -30,10 +30,10 @@ end
 
 def print_help
   puts <<-HELP
-  nit - parallel git across many repositories
+  fit - parallel git across many repositories
 
   USAGE:
-      nit [OPTIONS] <COMMAND> [ARGS...]
+      fit [OPTIONS] <COMMAND> [ARGS...]
 
   OPTIONS:
       -n, --workers <NUM>   Number of parallel workers (default: 8, 0=unlimited)
@@ -50,11 +50,11 @@ def print_help
       <any>     Pass-through to git verbatim
 
   EXAMPLES:
-      nit pull                      Pull all repos
-      nit status                    Status of all repos
-      nit --dry-run pull            Show commands without executing
-      nit -n 4 fetch                Fetch with 4 workers
-      nit checkout main             Switch all repos to main
+      fit pull                      Pull all repos
+      fit status                    Status of all repos
+      fit --dry-run pull            Show commands without executing
+      fit -n 4 fetch                Fetch with 4 workers
+      fit checkout main             Switch all repos to main
   HELP
 end
 
@@ -85,7 +85,7 @@ def parse_args(argv : Array(String)) : Options
     end
 
     p.on("-V", "--version", "Print version") do
-      puts "nit #{VERSION}"
+      puts "fit #{VERSION}"
       exit 0
     end
 

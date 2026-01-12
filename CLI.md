@@ -1,30 +1,30 @@
-# nit CLI Reference
+# fit CLI Reference
 
 ## Overview
 
-`nit` is a CLI for running git commands across multiple repositories in parallel.
+`fit` is a CLI for running git commands across multiple repositories in parallel.
 
-It preserves the `git` passthrough model: `nit <cmd> [args]` runs `git <cmd> [args]` on multiple repos.
+It preserves the `git` passthrough model: `fit <cmd> [args]` runs `git <cmd> [args]` on multiple repos.
 
-See also: [docs/knit-future.md](docs/knit-future.md) for planned `knit` functionality (roots-based multi-repo git).
+See also: [docs/fit-future.md](docs/fit-future.md) for planned `fit` functionality (roots-based multi-repo git).
 
 ---
 
-## nit - Local Multi-Repo Git
+## fit - Local Multi-Repo Git
 
 ```
 NAME
-    nit - parallel git operations across repositories in current directory
+    fit - parallel git operations across repositories in current directory
 
 SYNOPSIS
-    nit [OPTIONS] <command> [<args>...]
-    nit --help | --version
+    fit [OPTIONS] <command> [<args>...]
+    fit --help | --version
 
 DESCRIPTION
-    nit discovers git repositories under the current directory and runs
+    fit discovers git repositories under the current directory and runs
     the specified git command across all of them in parallel.
 
-    Any command not recognized by nit is passed through to git verbatim.
+    Any command not recognized by fit is passed through to git verbatim.
 
 OPTIONS
     -d, --depth <N|all>
@@ -63,19 +63,19 @@ PASSTHROUGH
     to git for each repository.
 
 EXAMPLES
-    nit status
+    fit status
         Show single-line status for each repo in CWD (depth 1).
 
-    nit pull -p
+    fit pull -p
         Pull with prune for all repos. The -p is passed to git.
 
-    nit --dry-run pull
+    fit --dry-run pull
         Show what git commands would run without executing.
 
-    nit checkout main
+    fit checkout main
         Checkout main branch in all repos (passthrough mode).
 
-    nit --ssh fetch
+    fit --ssh fetch
         Fetch using SSH URLs even if remotes are configured as HTTPS.
 ```
 
@@ -105,8 +105,8 @@ dirty-repo       M3 ?2 (feature-branch)
 ## Dry-Run Output
 
 ```
-$ nit --dry-run pull
-[nit v0.2.0] Dry-run mode - commands will not execute
+$ fit --dry-run pull
+[fit v0.2.0] Dry-run mode - commands will not execute
 
 git -C /Users/rob/src/project-a pull
 git -C /Users/rob/src/project-b pull
@@ -122,7 +122,7 @@ git -C /Users/rob/src/project-c pull
 * Summary at end shows which repos failed
 
 ```
-$ nit pull
+$ fit pull
 repo-a           ✓ Already up to date
 repo-b           ✗ Could not resolve host: github.com
 repo-c           ✓ Already up to date
@@ -137,9 +137,9 @@ repo-c           ✓ Already up to date
 Development wrappers in `./bin/` for testing each implementation:
 
 ```
-./bin/nit-rust     → runs Rust implementation
-./bin/nit-zig      → runs Zig implementation
-./bin/nit-crystal  → runs Crystal implementation
+./bin/fit-rust     → runs Rust implementation
+./bin/fit-zig      → runs Zig implementation
+./bin/fit-crystal  → runs Crystal implementation
 ```
 
 The underlying binary is executed with arguments passed through.

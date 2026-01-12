@@ -8,7 +8,7 @@ show_help() {
     local impls
     impls=$(discover_impl_names | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
     cat <<EOF
-install - Build and install nit binaries
+install - Build and install fit binaries
 
 Usage: install [options]
 
@@ -20,8 +20,8 @@ Options:
 Builds optimized release binaries and installs to ${INSTALL_DIR}
 
 Examples:
-  install                  # Build and install Rust (as 'nit')
-  install -t zig           # Build and install Zig (as 'nit-zig')
+  install                  # Build and install Rust (as 'fit')
+  install -t zig           # Build and install Zig (as 'fit-zig')
   install -t all           # Build and install all implementations
 EOF
 }
@@ -88,10 +88,10 @@ main() {
             continue
         fi
 
-        # Rust gets installed as 'nit', others as 'nit-<impl>'
-        local dest="${INSTALL_DIR}/nit"
+        # Rust gets installed as 'fit', others as 'fit-<impl>'
+        local dest="${INSTALL_DIR}/fit"
         if [[ "$impl" != "rust" ]]; then
-            dest="${INSTALL_DIR}/nit-${impl}"
+            dest="${INSTALL_DIR}/fit-${impl}"
         fi
 
         ln -sf "$binary" "$dest"
@@ -99,7 +99,7 @@ main() {
     done
 
     echo
-    echo "Done! Run 'nit --help' to verify."
+    echo "Done! Run 'fit --help' to verify."
 }
 
 main "$@"

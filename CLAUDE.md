@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`nit` is a CLI for running parallel git operations across many repositories. The project explores different implementation approaches by building the same tool in multiple languages (Rust, Zig, and Crystal).
+`fit` is a CLI for running parallel git operations across many repositories. The project explores different implementation approaches by building the same tool in multiple languages (Rust, Zig, and Crystal).
 
 ## Core Behavior
 
@@ -15,14 +15,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Structure
 
 ```
-./nit-rust/      # Rust implementation
-./nit-zig/       # Zig implementation
-./nit-crystal/   # Crystal implementation
-./bin/           # Wrapper scripts (nit-rust, nit-zig, nit-crystal)
+./fit-rust/      # Rust implementation
+./fit-zig/       # Zig implementation
+./fit-crystal/   # Crystal implementation
+./bin/           # Wrapper scripts (fit-rust, fit-zig, fit-crystal)
 ./script/        # Build, test, and benchmarking scripts
 ```
 
-All binaries should be runnable via `./bin/nit-<language>`.
+All binaries should be runnable via `./bin/fit-<language>`.
 
 ## Scripts
 
@@ -39,7 +39,7 @@ Run any script with `--help` for options.
 ```bash
 script/build -t rust     # build release
 script/test -t rust      # run tests
-./bin/nit-rust status    # run locally
+./bin/fit-rust status    # run locally
 ```
 
 ### Building
@@ -52,26 +52,26 @@ script/build                 # build all implementations (release)
 ### Running Locally
 After building, run via wrapper scripts which point to the release binary:
 ```bash
-./bin/nit-rust status
-./bin/nit-zig status
-./bin/nit-crystal status
+./bin/fit-rust status
+./bin/fit-zig status
+./bin/fit-crystal status
 ```
 
 Or run debug builds directly for fast iteration:
 ```bash
-./nit-rust/target/debug/nit status
+./fit-rust/target/debug/fit status
 ```
 
 ### Testing
 ```bash
 script/test -t rust          # run Rust tests
 script/test                  # run all tests
-cargo test                   # run directly in nit-rust/
+cargo test                   # run directly in fit-rust/
 ```
 
 ### Installing Globally
 ```bash
-script/install -t rust       # installs release build as ~/.local/bin/nit
+script/install -t rust       # installs release build as ~/.local/bin/fit
 ```
 
 ## Development Tools

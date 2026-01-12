@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run test suites for nit implementations
+# Run test suites for fit implementations
 source "$(dirname "$0")/lib.sh"
 
 TYPE=""
@@ -9,7 +9,7 @@ show_help() {
     local impls
     impls=$(discover_impl_names | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
     cat <<EOF
-test - Run test suites for nit implementations
+test - Run test suites for fit implementations
 
 Usage: test [options]
 
