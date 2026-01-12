@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Default to 'serve' if no args
+cmd="${1:-serve}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+exec uv run zensical "$cmd" "$@"

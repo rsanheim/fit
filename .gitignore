@@ -16,3 +16,11 @@ fit-crystal/lib/
 
 # macOS
 .DS_Store
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# Zensical build output
+site/
