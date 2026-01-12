@@ -20,11 +20,13 @@ A conforming implementation:
 
 ## 1. Operating Modes
 
-### 1.0 'fit meta'
+### 1.0 fit Meta Mode
 
 Before anything else, the implementation MUST check for an initial subcommand of 'meta' - ie `fit meta` or `fit meta <subcommand>`.  If found, the implementation MUST pass all args and options to `fit` itself and NOT passthrough to git.
 
-If not found, the implementation MUST continue with the next operating mode.
+`fit meta help` MUST print the help message for `fit` itself, including the version of fit and the version of the underlying git implementation.
+
+If `fit meta` is not found, the implementation MUST continue with the next operating mode.
 
 ### 1.1 Passthrough Mode
 
