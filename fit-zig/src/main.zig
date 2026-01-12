@@ -6,7 +6,7 @@ const fetch = @import("commands/fetch.zig");
 const status = @import("commands/status.zig");
 const passthrough = @import("commands/passthrough.zig");
 
-const VERSION = "0.1.0";
+const VERSION = "0.3.0";
 const DEFAULT_WORKERS: usize = 8;
 
 const Command = enum {

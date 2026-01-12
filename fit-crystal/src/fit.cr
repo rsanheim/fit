@@ -3,7 +3,7 @@ require "./repo"
 require "./runner"
 require "./commands/*"
 
-VERSION = "0.1.0"
+VERSION = "0.3.0"
 DEFAULT_WORKERS = 8
 
 enum UrlScheme
