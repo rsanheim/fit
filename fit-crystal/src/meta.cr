@@ -24,9 +24,9 @@ module Meta
     true
   end
 
-  def self.help
+  def self.help(io : IO = STDOUT)
     git_version = Doctor.git_info.version || "unknown"
-    puts <<-HELP
+    io.puts <<-HELP
 fit v#{Fit::VERSION} (git #{git_version}) - parallel git across many repositories
 
 USAGE:
