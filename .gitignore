@@ -17,6 +17,9 @@ fit-crystal/lib/
 # macOS
 .DS_Store
 
+# Claude Code local settings (user-specific)
+.claude/settings.local.json
+
 # Python / uv
 .venv/
 __pycache__/

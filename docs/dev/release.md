@@ -92,8 +92,75 @@ The formula never knows what language built the binary.
 
 ### Make fit repo public
 
-* [ ] Audit repo for sensitive content (secrets, credentials, personal paths)
-* [ ] Review git history for anything that should be scrubbed
+#### Audit for sensitive content
+
+**Secrets and Credentials:**
+* [x] Search for API keys, tokens, passwords: `git log -p --all -S "password\|secret\|token\|api_key\|credential"`
+* [x] Check for AWS/GCP/Azure credential patterns (e.g., `AKIA`, `azure_`, service account JSON)
+* [x] Verify no `.env` files in history: `git log --all --diff-filter=A --name-only | grep -i env`
+* [x] Search for private key headers: `git log -p --all -S "BEGIN.*PRIVATE KEY"`
+
+**Personal Information:**
+* [x] Search for hardcoded home paths: `git log -p --all -S "/Users/\|/home/"`
+* [x] Check for email addresses in code (not commits): `grep -r "@" --include="*.rs" --include="*.zig" --include="*.cr"`
+* [x] Look for internal hostnames or IP addresses
+
+**Private Dependencies:**
+* [x] Verify Cargo.toml uses only public crates (no private git URLs)
+* [x] Verify shard.yml uses only public shards
+* [x] Check for private git URLs in build configs (build.zig.zon, etc.)
+
+**Configuration Files:**
+* [x] Confirm `.gitignore` covers local config files
+* [x] Add `.claude/settings.local.json` to `.gitignore`
+* [x] Verify no IDE configs with personal paths are tracked
+
+#### Review git history
+
+**File History Analysis:**
+* [x] List deleted files: `git log --all --diff-filter=D --name-only --oneline`
+* [x] Check for sensitive file patterns (`.env`, `credentials`, `secrets`, `*.pem`)
+* [x] Verify no config files with secrets were ever tracked
+
+**Commit Message Review:**
+* [x] Scan messages for sensitive keywords: `git log --all --oneline | grep -iE "secret|password|token|key"`
+* [x] Check for internal project or private repo references
+
+**Binary Artifacts:**
+
+Early commits include `nit-crystal/bin/nit` (543KB) and `nit-crystal/bin/nit.dwarf` (1MB) - ~1.5MB total bloat.
+
+*Decision: Skip cleanup* - The cost outweighs the benefit:
+* 13 PRs exist (11 merged, 2 open) - rewriting would orphan all commit references
+* Open PRs (#3, #13) would break and need manual rebasing
+* 1.5MB is negligible for a CLI tool repo
+* No security risk - binaries contain no sensitive data
+
+If cleanup is ever needed, use [git-filter-repo](https://github.com/newren/git-filter-repo) (the modern, git-recommended replacement for BFG):
+
+```bash
+# Install
+brew install git-filter-repo
+
+# Create fresh mirror clone (required)
+git clone --mirror git@github.com:rsanheim/fit.git fit-cleanup
+cd fit-cleanup
+
+# Remove the files
+git filter-repo --invert-paths \
+  --path nit-crystal/bin/nit \
+  --path nit-crystal/bin/nit.dwarf
+
+# Re-add origin (filter-repo removes it) and force push
+git remote add origin git@github.com:rsanheim/fit.git
+git push origin --force --all
+git push origin --force --tags
+```
+
+Warning: This rewrites all commit SHAs, breaks PR references, and requires all clones to be re-fetched.
+
+#### Finalize for public release
+
 * [ ] Add LICENSE file (MIT)
 * [ ] Review and clean up documentation
 * [ ] Update README with project overview and usage
