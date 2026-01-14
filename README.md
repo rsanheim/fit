@@ -1,160 +1,97 @@
 # fit
 
-`fit` is a CLI for running parallel git operations across many repositories. We implement `fit` in multiple languages (Rust, Zig, and Crystal) to compare approaches.
+A fast CLI for running parallel git operations across many repositories.
 
-See [SPEC.md](SPEC.md) for the formal specification.
+## Why fit?
 
-## Operating Modes
+If you work with multiple git repositories (microservices, monorepo-adjacent projects, or just many OSS checkouts), running `git pull` or `git status` across all of them is tedious. `fit` makes it fast:
 
-**Passthrough Mode**: When inside a git repository, `fit` acts as a transparent wrapper around `git`. All arguments pass through unchanged - `fit status` becomes `git status`.
-
-**Multi-Repository Mode**: When NOT inside a git repository, `fit` discovers sub-repos at depth 1 and runs commands across all of them in parallel.
-
-### Multi-Repository Mode Details
-
-In multi-repository mode, `fit` provides optimized commands with condensed single-line output:
-
-* `fit pull` - Pull all repos with single-line status per repo
-* `fit fetch` - Fetch all repos with single-line status per repo
-* `fit status` - Status all repos with single-line status per repo
-
-Any other command passes through to git verbatim for each repo. Additional flags are forwarded to git.
-
-## GLOBAL OPTIONS
-
-The following global options should be supported:
-
-```
-NAME:
-   fit - parallel git across many repositories
-
-USAGE:
-   fit [global options] [command [command options]]
-
-COMMANDS:
-   pull             Pull all repositories
-   fetch            Fetch all repositories
-   status           Status all repositories
-   [anything else]  Pass through to git
-   help, h          Shows a list of commands or help for one command
-
-GLOBAL OPTIONS:
-   -n, --workers N   Number of parallel workers (default: 8, 0 = unlimited)
-   --dry-run         Print the **exact** command for every repo without running it
-   --ssh             Force SSH URLs (git@github.com:) for all remotes
-   --https           Force HTTPS URLs (https://github.com/) for all remotes
-
+```bash
+# Instead of cd-ing into each repo...
+$ fit pull
+repo-a        Already up to date.
+repo-b        Fast-forward: 3 files changed
+repo-c        Already up to date.
+api-service   Fast-forward: 1 file changed
 ```
 
-### Example dry-run output
-NOTE: dry-run output should be constructed in ONE PLACE, as close to actual OS level execution as possible, such that the dry-run output is as close to the actual execution as possible.  This ensures we get an accurate view of what will actually happen.  Here is a simplified, basic exmaple of what I mean (in ruby-ish pseudo code):
+All repos pulled in parallel with condensed single-line output.
 
-#### Good example
-```
-class Fit
-  attr_reader :dry_run, :repos
+## Installation
 
-  def ifitialize(dry_run: false)
-    @dry_run = dry_run
-    @repos = find_git_repos
-  end
-
-  def pull(ARGV = [])
-    repos.parallel_each do |repo|
-      cmd = build_git_command(repo, ARGV)
-      result = cmd.run(dry_run: dry_run)
-      puts result # outputs the actual one-line output from git, or the 'dry-run' output if we are in dry-run mode
-    end
-  end
+```bash
+brew tap rsanheim/tap
+brew install fit
 ```
 
-#### Bad - do NOT do this!
-```
-class Fit
-  def ifitialize(dry_run: false)
-    @dry_run = dry_run
-    @repos = find_git_repos
-  end
+**Requirements:**
+* macOS (Apple Silicon or Intel)
+* Git 2.25+ recommended (uses `git -C` for directory switching)
 
-  def pull(ARGV = [])
-    if @dry_run
-      puts "would run 'git pull' for #{repos.join(', ')}"
-    else
-      repos.parallel_each do |repo|
-        cmd = build_git_command(repo, ARGV)
-        result = cmd.run
-        puts result # outputs just the result of the git command
-      end
-    end
-  end
+## Usage
+
+### Multi-Repository Mode
+
+When run from a directory containing multiple git repos (but not inside one), `fit` discovers repos at depth 1 and runs commands in parallel:
+
+```bash
+fit pull      # Pull all repos
+fit fetch     # Fetch all repos
+fit status    # Status all repos
 ```
 
-Ideally, a `fit pull --dry-run` should output something like this:
+Any other command passes through to git for each repo:
 
-```
-[~/src/oss] fit pull --dry-run
-[fit v0.1.0] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.
-git -C ~/src/oss/repo1 pull
-git -C ~/src/oss/repo2 pull
-git -C ~/src/oss/repo3 pull
-
-# Show the exact 'pass thru' options for every repo
-[~/src/oss] fit pull --dry-run --all
-[fit v0.1.0] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.
-git -C ~/src/oss/repo1 pull --all
-git -C ~/src/oss/repo2 pull --all
-git -C ~/src/oss/repo3 pull --all
+```bash
+fit log --oneline -5    # Show recent commits in all repos
+fit branch              # List branches in all repos
 ```
 
-etc...
+### Passthrough Mode
 
-## MVP goal
+Inside a git repository, `fit` acts as a transparent wrapper. `fit status` becomes `git status`. This lets you use `fit` everywhere without thinking about which mode you're in.
 
-* support `fit pull` with fast parallel mode and single line output
-* all other git commands should be supported via pass-through mode
-* support dry-run mode with accurate output
-* basic CLI parsing / help / etc
-
-## Project structure and implementation notes
-
-Language implementations should go into a corresponding subdir, i.e. `./fit-rust`, `./fit-zig`, etc.
-All binaries are runnable via wrapper scripts in `./bin/` (e.g., `./bin/fit-rust`).
-
-### Scripts
-
-* `script/build` - Build implementations (optimized release builds by default)
-* `script/install` - Build and install to `~/.local/bin`
-* `script/test` - Run tests for implementations
-* `script/bench` - Run benchmarks with hyperfine
-
-Run any script with `--help` for detailed options.
-
-We use `mise` for installing tools and dependencies.
-
-## Performance: SSH Multiplexing
-
-For network operations (`pull`, `fetch`), SSH connection overhead is significant. Enable SSH multiplexing to reuse connections:
-
-Add to `~/.ssh/config`:
+### Options
 
 ```
+-n, --workers N   Parallel workers (default: 8, 0 = unlimited)
+--dry-run         Print commands without executing
+--ssh             Force SSH URLs for remotes
+--https           Force HTTPS URLs for remotes
+```
+
+## Performance Tips
+
+For network operations (`pull`, `fetch`), SSH connection overhead adds up. Enable SSH multiplexing to reuse connections:
+
+```
+# ~/.ssh/config
 Host github.com
   ControlMaster auto
   ControlPath ~/.ssh/sockets/%r@%h-%p
-  ControlPersist 8h
-
-Host *
-  ControlMaster auto
-  ControlPath ~/.ssh/sockets/%r@%h-%p
-  ControlPersist 20m
+  ControlPersist 9m
 ```
 
-Create the sockets directory:
+Note: GitHub terminates idle SSH connections after 10 minutes, so keep `ControlPersist` under that.
+
 ```bash
 mkdir -p ~/.ssh/sockets && chmod 700 ~/.ssh/sockets
 ```
 
-This reduces `fit pull` time by ~3x by avoiding repeated SSH handshakes.
+This can reduce `fit pull` time by ~3x across many repos.
 
-See [docs/benchmarks.md](docs/benchmarks.md) for detailed benchmark results.
+## Development
 
+`fit` is implemented in multiple languages (Rust, Zig, Crystal) to compare approaches. The Homebrew formula installs the Rust implementation.
+
+```bash
+script/build -t rust     # Build
+script/test -t rust      # Test
+./bin/fit-rust status    # Run locally
+```
+
+See [docs/SPEC.md](docs/SPEC.md) for the formal specification, [docs/dev/](docs/dev/) for contributor documentation, and [CircleCI](https://app.circleci.com/pipelines/github/rsanheim/fit) for build status.
+
+## License
+
+MIT - see [LICENSE](LICENSE)
