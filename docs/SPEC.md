@@ -261,7 +261,6 @@ ARGS:
 
 * [RFC 2119 - Key words for use in RFCs to Indicate Requirement Levels](https://www.rfc-editor.org/rfc/rfc2119)
 * [Git Documentation](https://git-scm.com/docs)
-* [CLI.md](./CLI.md) - User-facing CLI reference
 
 ## Appendix C: Changelog
 
