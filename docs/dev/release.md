@@ -170,7 +170,7 @@ Warning: This rewrites all commit SHAs, breaks PR references, and requires all c
 
 * [x] Create `rsanheim/homebrew-tap` repository on GitHub
 * [x] Push homebrew-tap initial commit
-* [ ] Merge `release-workflow` branch in fit repo
-* [ ] Create first release (`script/release 0.5.0`)
+* [x] Merge `release-workflow` branch in fit repo
+* [x] Create first release (`script/release 0.5.0`)
 * [ ] Update tap with real SHA256 hashes (`script/update-homebrew 0.5.0`)
 * [ ] Test installation: `brew tap rsanheim/tap && brew install fit`
