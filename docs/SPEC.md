@@ -58,9 +58,9 @@ If `fit meta` is not found, the implementation MUST continue with the next opera
 
 3. The default search depth MUST be 1 (immediate subdirectories only).
 
-4. When `--depth N` is specified, the implementation MUST search up to N levels deep.
+4. When `--fit-depth N` is specified, the implementation MUST search up to N levels deep.
 
-5. When `--depth all` is specified, the implementation MUST search recursively without limit, stopping at `.git` boundaries.
+5. When `--fit-depth all` is specified, the implementation MUST search recursively without limit, stopping at `.git` boundaries.
 
 6. The implementation MUST NOT descend into discovered repositories (no nested repository discovery).
 
@@ -198,7 +198,7 @@ else:
 
 3. The default value SHOULD be 8.
 
-### 6.4 --depth / -d
+### 6.4 --fit-depth
 
 **Status: Not yet implemented**
 
@@ -246,7 +246,7 @@ OPTIONS:
     --ssh
     --https
     -n, --workers <N>
-    -d, --depth <N|all>
+    --fit-depth <N|all>
     -h, --help
     -V, --version
 

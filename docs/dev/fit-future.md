@@ -25,8 +25,8 @@ DESCRIPTION
     Run fit from anywhere - it always uses your configured roots.
 
 OPTIONS
-    -d, --depth <N|all>
-        Search depth within each root.
+    --fit-depth <N|all>
+        Search depth within each root (avoids conflict with git's --depth).
         Default: 1
 
     -n, --workers <N>
@@ -70,7 +70,7 @@ EXAMPLES
     fit pull -p
         Pull all repos from all roots.
 
-    fit -d all fetch
+    fit --fit-depth all fetch
         Fetch repos recursively within each root.
 
     fit roots rm ~/old-projects
