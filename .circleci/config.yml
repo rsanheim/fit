@@ -7,7 +7,6 @@ jobs:
   test-rust:
     executor:
       name: rust/default
-      resource_class: rsanheim/orbstack-arm64
       tag: "1.92"
     steps:
       - checkout
@@ -17,6 +16,7 @@ jobs:
   test-crystal:
     docker:
       - image: crystallang/crystal:latest
+    resource_class: rsanheim/orbstack-arm64
     steps:
       - checkout
       - run:
@@ -31,6 +31,7 @@ jobs:
   test-zig:
     docker:
       - image: cimg/base:current
+    resource_class: rsanheim/orbstack-arm64
     steps:
       - checkout
       - run:
