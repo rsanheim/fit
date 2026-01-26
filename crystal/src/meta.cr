@@ -68,9 +68,9 @@ HELP
 
     # git-all info
     puts "GIT-ALL"
-    fit = Doctor.fit_info
-    puts "  Version:        #{fit.version}"
-    puts "  Path:           #{fit.path}"
+    tool = Doctor.tool_info
+    puts "  Version:        #{tool.version}"
+    puts "  Path:           #{tool.path}"
     puts "  Implementation: Crystal"
     puts
 

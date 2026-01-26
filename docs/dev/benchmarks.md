@@ -7,7 +7,7 @@ Benchmarks run on macOS with ~90 git repositories, using `hyperfine` with minimu
 * macOS (Darwin 24.6.0)
 * 20 CPU cores
 * SSH multiplexing enabled (ControlMaster)
-* Rust implementation (`fit-rust`)
+* Rust implementation (`rust`)
 
 ## git status
 

@@ -1,13 +1,13 @@
-# fit documentation - https://zensical.org/
+# git-all documentation - https://zensical.org/
 
 [project]
-site_name = "fit"
+site_name = "git-all"
 site_description = "CLI for parallel git operations across many repositories"
 site_author = "rsanheim"
 
 # Repository link
-repo_url = "https://github.com/rsanheim/fit"
-repo_name = "rsanheim/fit"
+repo_url = "https://github.com/rsanheim/git-all"
+repo_name = "rsanheim/git-all"
 
 copyright = """
 Copyright &copy; 2025 rsanheim
@@ -49,4 +49,4 @@ toggle.name = "Switch to light mode"
 # Social links
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
-link = "https://github.com/rsanheim/fit"
+link = "https://github.com/rsanheim/git-all"

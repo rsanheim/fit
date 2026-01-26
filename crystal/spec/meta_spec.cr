@@ -33,9 +33,9 @@ describe Meta do
 end
 
 describe Meta::Doctor do
-  describe ".fit_info" do
+  describe ".tool_info" do
     it "returns installed tool info" do
-      info = Meta::Doctor.fit_info
+      info = Meta::Doctor.tool_info
       info.installed.should be_true
       info.name.should eq("git-all")
       info.version.should eq(GitAll::VERSION)

@@ -1,7 +1,7 @@
 require "./spec_helper"
 
 def with_tempdir(&)
-  tmpdir = File.join(Dir.tempdir, "fit-test-#{Random::Secure.hex(8)}")
+  tmpdir = File.join(Dir.tempdir, "git-all-test-#{Random::Secure.hex(8)}")
   Dir.mkdir(tmpdir)
   begin
     yield tmpdir
