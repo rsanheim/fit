@@ -5,23 +5,21 @@ source "$(dirname "$0")/lib.sh"
 INSTALL_DIR="${HOME}/.local/bin"
 
 show_help() {
-    local impls
-    impls=$(discover_impl_names | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
     cat <<EOF
-install - Build and install fit binaries
+install - Build and install git-all binaries
 
 Usage: install [options]
 
 Options:
-  -t, --type TYPE    Build specific type: ${impls}, or all (default: rust)
+  -t, --type TYPE    Build specific type: rust, zig, crystal, or all (default: rust)
   -l, --list         List available implementations
   -h, --help         Show this help message
 
 Builds optimized release binaries and installs to ${INSTALL_DIR}
 
 Examples:
-  install                  # Build and install Rust (as 'fit')
-  install -t zig           # Build and install Zig (as 'fit-zig')
+  install                  # Build and install Rust (as 'git-all')
+  install -t zig           # Build and install Zig (as 'git-all-zig')
   install -t all           # Build and install all implementations
 EOF
 }
@@ -88,10 +86,10 @@ main() {
             continue
         fi
 
-        # Rust gets installed as 'fit', others as 'fit-<impl>'
-        local dest="${INSTALL_DIR}/fit"
+        # Rust gets installed as 'git-all', others as 'git-all-<impl>'
+        local dest="${INSTALL_DIR}/git-all"
         if [[ "$impl" != "rust" ]]; then
-            dest="${INSTALL_DIR}/fit-${impl}"
+            dest="${INSTALL_DIR}/git-all-${impl}"
         fi
 
         ln -sf "$binary" "$dest"
@@ -99,7 +97,7 @@ main() {
     done
 
     echo
-    echo "Done! Run 'fit --help' to verify."
+    echo "Done! Run 'git-all --help' to verify."
 }
 
 main "$@"

@@ -27,10 +27,10 @@ module Meta
   def self.help(io : IO = STDOUT)
     git_version = Doctor.git_info.version || "unknown"
     io.puts <<-HELP
-fit v#{Fit::VERSION} (git #{git_version}) - parallel git across many repositories
+git-all v#{GitAll::VERSION} (git #{git_version}) - parallel git across many repositories
 
 USAGE:
-    fit [OPTIONS] <COMMAND> [ARGS...]
+    git-all [OPTIONS] <COMMAND> [ARGS...]
 
 OPTIONS:
     -n, --workers <NUM>   Number of parallel workers (default: 8, 0=unlimited)
@@ -44,33 +44,33 @@ COMMANDS:
     status    Git status with condensed output
     pull      Git pull with condensed output
     fetch     Git fetch with condensed output
-    meta      Fit internal commands (help, doctor)
+    meta      git-all internal commands (help, doctor)
     <any>     Pass-through to git verbatim
 
 META SUBCOMMANDS:
-    fit meta help         Show this help message
-    fit meta doctor       Diagnose fit and git environment
+    git-all meta help     Show this help message
+    git-all meta doctor   Diagnose git-all and git environment
 
 EXAMPLES:
-    fit pull                      Pull all repos
-    fit status                    Status of all repos
-    fit --dry-run pull            Show commands without executing
-    fit -n 4 fetch                Fetch with 4 workers
-    fit checkout main             Switch all repos to main
-    fit meta doctor               Check environment
+    git-all pull                  Pull all repos
+    git-all status                Status of all repos
+    git-all --dry-run pull        Show commands without executing
+    git-all -n 4 fetch            Fetch with 4 workers
+    git-all checkout main         Switch all repos to main
+    git-all meta doctor           Check environment
 HELP
   end
 
   def self.doctor
-    puts "fit doctor"
+    puts "git-all doctor"
     puts "=" * 50
     puts
 
-    # Fit info
-    puts "FIT"
-    fit = Doctor.fit_info
-    puts "  Version:        #{fit.version}"
-    puts "  Path:           #{fit.path}"
+    # git-all info
+    puts "GIT-ALL"
+    tool = Doctor.tool_info
+    puts "  Version:        #{tool.version}"
+    puts "  Path:           #{tool.path}"
     puts "  Implementation: Crystal"
     puts
 
@@ -111,7 +111,7 @@ HELP
     puts "  OS:        #{Doctor.os_name} #{Doctor.os_version}"
     puts "  Shell:     #{Doctor.shell}"
     puts "  CPU cores: #{Doctor.cpu_count}"
-    puts "  Workers:   #{DEFAULT_WORKERS} (fit default)"
+    puts "  Workers:   #{DEFAULT_WORKERS} (git-all default)"
     puts
   end
 end

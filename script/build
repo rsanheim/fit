@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build fit implementations
+# Build git-all implementations
 source "$(dirname "$0")/lib.sh"
 
 TYPE=""
@@ -7,12 +7,12 @@ MODE="release"
 
 show_help() {
     cat <<EOF
-build - Build fit implementations
+build - Build git-all implementations
 
 Usage: build [options]
 
 Options:
-  -t, --type TYPE    Build specific type: $(discover_impl_names | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g'), or all (default: all)
+  -t, --type TYPE    Build specific type: rust, zig, crystal, or all (default: all)
   -d, --dev          Build debug/dev version (faster compile, slower runtime)
   -l, --list         List available implementations
   -h, --help         Show this help message

@@ -9,9 +9,9 @@ module Meta::Doctor
     end
   end
 
-  def self.fit_info : ToolInfo
+  def self.tool_info : ToolInfo
     path = Process.executable_path || "unknown"
-    ToolInfo.new("fit", Fit::VERSION, path, true)
+    ToolInfo.new("git-all", GitAll::VERSION, path, true)
   end
 
   def self.git_info : ToolInfo

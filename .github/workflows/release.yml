@@ -17,10 +17,10 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact_name: fit-darwin-arm64
+            artifact_name: git-all-darwin-arm64
           - target: x86_64-apple-darwin
             os: macos-15-intel
-            artifact_name: fit-darwin-x86_64
+            artifact_name: git-all-darwin-x86_64
 
     steps:
       - uses: actions/checkout@v4
@@ -31,12 +31,12 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build release binary
-        run: cargo build --release --manifest-path fit-rust/Cargo.toml
+        run: cargo build --release --manifest-path rust/Cargo.toml
 
       - name: Create tarball
         run: |
-          cd fit-rust/target/release
-          tar -czvf ../../../${{ matrix.artifact_name }}.tar.gz fit
+          cd rust/target/release
+          tar -czvf ../../../${{ matrix.artifact_name }}.tar.gz git-all
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -57,13 +57,13 @@ jobs:
 
       - name: Rename artifacts with version
         run: |
-          mv fit-darwin-arm64/fit-darwin-arm64.tar.gz fit-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz
-          mv fit-darwin-x86_64/fit-darwin-x86_64.tar.gz fit-${{ steps.version.outputs.version }}-darwin-x86_64.tar.gz
+          mv git-all-darwin-arm64/git-all-darwin-arm64.tar.gz git-all-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz
+          mv git-all-darwin-x86_64/git-all-darwin-x86_64.tar.gz git-all-${{ steps.version.outputs.version }}-darwin-x86_64.tar.gz
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            fit-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz
-            fit-${{ steps.version.outputs.version }}-darwin-x86_64.tar.gz
+            git-all-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz
+            git-all-${{ steps.version.outputs.version }}-darwin-x86_64.tar.gz
           generate_release_notes: true

@@ -16,12 +16,12 @@ describe Meta do
   end
 
   describe ".help" do
-    it "outputs help with fit and git versions" do
+    it "outputs help with git-all and git versions" do
       output = IO::Memory.new
       Meta.help(output)
 
       help_text = output.to_s
-      help_text.should contain("fit v#{Fit::VERSION}")
+      help_text.should contain("git-all v#{GitAll::VERSION}")
       help_text.should contain("(git ")
       help_text.should contain("USAGE:")
       help_text.should contain("OPTIONS:")
@@ -33,12 +33,12 @@ describe Meta do
 end
 
 describe Meta::Doctor do
-  describe ".fit_info" do
+  describe ".tool_info" do
     it "returns installed tool info" do
-      info = Meta::Doctor.fit_info
+      info = Meta::Doctor.tool_info
       info.installed.should be_true
-      info.name.should eq("fit")
-      info.version.should eq(Fit::VERSION)
+      info.name.should eq("git-all")
+      info.version.should eq(GitAll::VERSION)
     end
   end
 

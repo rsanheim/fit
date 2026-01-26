@@ -16,7 +16,7 @@ jobs:
       - run:
           name: Run Rust tests
           command: cargo test
-          working_directory: fit-rust
+          working_directory: rust
 
   test-crystal:
     docker:
@@ -27,11 +27,11 @@ jobs:
       - run:
           name: Install dependencies
           command: shards install
-          working_directory: fit-crystal
+          working_directory: crystal
       - run:
           name: Run specs
           command: crystal spec
-          working_directory: fit-crystal
+          working_directory: crystal
 
   test-zig:
     docker:
@@ -57,7 +57,7 @@ jobs:
       - run:
           name: Run tests
           command: zig build test
-          working_directory: fit-zig
+          working_directory: zig
 
 workflows:
   test:

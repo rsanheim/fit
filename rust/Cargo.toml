@@ -1,6 +1,6 @@
 [package]
-name = "fit"
-version = "0.5.0"
+name = "git-all"
+version = "0.6.0"
 edition = "2021"
 description = "parallel git across many repositories"
 

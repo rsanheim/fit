@@ -1,6 +1,6 @@
 # Git Performance Flags and Concurrent Operations
 
-This document explains git's locking model, performance-related flags, and how they affect environments where multiple tools access git simultaneously (fit, IDEs, pre-commit hooks, etc.).
+This document explains git's locking model, performance-related flags, and how they affect environments where multiple tools access git simultaneously (git-all, IDEs, pre-commit hooks, etc.).
 
 ## Git's Locking Model
 
@@ -66,9 +66,9 @@ GIT_OPTIONAL_LOCKS=0 git status
 - **VS Code**: Sets this internally for its git integration
 - **IntelliJ/JetBrains**: Similar behavior
 - **Build systems**: CI/CD pipelines running parallel jobs
-- **Tools like fit**: Running multiple git commands simultaneously
+- **Tools like git-all**: Running multiple git commands simultaneously
 
-### Recommendation for fit
+### Recommendation for git-all
 
 For read-only operations like `status`, always use `--no-optional-locks`:
 
@@ -101,7 +101,7 @@ git config core.preloadindex true
 - **Default**: `true` since Git 2.1 on systems with threading
 - **How it works**: Divides index entries among CPU cores, each thread stats files in its portion
 - **Impact**: 20-50% faster status on multi-core systems with large indexes
-- **Note**: Already enabled by default; no action needed for fit
+- **Note**: Already enabled by default; no action needed for git-all
 
 ### `core.untrackedCache`
 
@@ -115,16 +115,16 @@ git config core.untrackedCache true
 - **Impact**: 10-30% improvement when many untracked files
 - **Trade-off**: Slightly more memory usage in index
 
-### `core.fsmofitor`
+### `core.fsmonitor`
 
-Delegates file change detection to a filesystem mofitor daemon.
+Delegates file change detection to a filesystem monitor daemon.
 
 ```bash
 # Built-in daemon (Git 2.37+)
-git config core.fsmofitor true
+git config core.fsmonitor true
 
 # Or with Watchman
-git config core.fsmofitor .git/hooks/fsmofitor-watchman
+git config core.fsmonitor .git/hooks/fsmonitor-watchman
 ```
 
 - **How it works**: Daemon watches for file changes; git queries daemon instead of stat'ing every file
@@ -151,7 +151,7 @@ Enables:
 A typical developer environment might have:
 
 - **IDE** (VS Code/IntelliJ) polling git status every 1-5 seconds
-- **fit** running parallel git status across 90 repos
+- **git-all** running parallel git status across 90 repos
 - **Git hooks** (pre-commit, husky) running on file save
 - **Terminal** with manual git commands
 
@@ -165,7 +165,7 @@ A typical developer environment might have:
 
 | Tool Type | Recommendation |
 |-----------|---------------|
-| Read-only tools (fit status, IDE polling) | Always use `--no-optional-locks` |
+| Read-only tools (git-all status, IDE polling) | Always use `--no-optional-locks` |
 | Write operations (commit, checkout) | Must take locks; contention acceptable |
 | Hooks | Keep fast; avoid spawning many git processes |
 | CI/CD | Set `GIT_OPTIONAL_LOCKS=0` globally |
@@ -178,11 +178,11 @@ These network operations *do* modify refs:
 - `--no-optional-locks` only affects optional locks
 - Lock contention is acceptable since these are slower network operations anyway
 
-For fit's fetch/pull: Don't use `--no-optional-locks` (it wouldn't help and the network latency dominates).
+For git-all's fetch/pull: Don't use `--no-optional-locks` (it wouldn't help and the network latency dominates).
 
 ## GitHub Concurrent Connection Limits
 
-GitHub imposes limits on concurrent connections, though they don't publish exact numbers. This affects tools like fit that spawn many parallel git operations.
+GitHub imposes limits on concurrent connections, though they don't publish exact numbers. This affects tools like git-all that spawn many parallel git operations.
 
 ### SSH Connections
 
@@ -209,7 +209,7 @@ The [git-xargs](https://github.com/gruntwork-io/git-xargs) tool, which performs 
 | SSH | ~10 | Limited by SSH multiplexing |
 | HTTPS | ~10-20 | More tolerant than SSH |
 
-### Recommendations for fit
+### Recommendations for git-all
 
 1. **Default to 8-10 concurrent connections** for network operations (fetch/pull)
 2. **Provide `--max-connections` flag** to override for local git servers or when using HTTPS
@@ -217,7 +217,7 @@ The [git-xargs](https://github.com/gruntwork-io/git-xargs) tool, which performs 
 
 ### References
 
-* [GitHub Commufity: Git clone limits discussion](https://github.com/orgs/commufity/discussions/24841)
+* [GitHub Community: Git clone limits discussion](https://github.com/orgs/commugit-ally/discussions/24841)
 * [git-xargs: Rate limiting for repository cloning](https://github.com/gruntwork-io/git-xargs/issues/139)
 * [git-xargs: Rate limit implementation](https://github.com/gruntwork-io/git-xargs/pull/142)
 
@@ -227,16 +227,16 @@ The [git-xargs](https://github.com/gruntwork-io/git-xargs) tool, which performs 
 |-------------|------------------|---------------------|
 | `--no-optional-locks` | Neutral to -5% | Eliminates contention |
 | `core.preloadindex` | +20-50% | Same |
-| `core.fsmofitor` | +50-90% (large repos) | Same |
+| `core.fsmonitor` | +50-90% (large repos) | Same |
 | `core.untrackedCache` | +10-30% | Same |
 
-## Recommendations for fit
+## Recommendations for git-all
 
-1. **Always use `--no-optional-locks` for status**: Eliminates lock contention, makes fit a good citizen alongside IDEs
+1. **Always use `--no-optional-locks` for status**: Eliminates lock contention, makes git-all a good citizen alongside IDEs
 
 2. **Consider `GIT_OPTIONAL_LOCKS=0` env for all commands**: Simpler than per-command flags
 
-3. **Don't force fsmofitor/untrackedCache**: These are user/repo-level choices with trade-offs
+3. **Don't force fsmonitor/untrackedCache**: These are user/repo-level choices with trade-offs
 
 4. **`core.preloadindex` is already default**: No action needed
 
@@ -246,5 +246,5 @@ The [git-xargs](https://github.com/gruntwork-io/git-xargs) tool, which performs 
 
 - [Git 2.15 Release Notes](https://github.com/git/git/blob/master/Documentation/RelNotes/2.15.0.txt) - Introduced `--no-optional-locks`
 - [git-status documentation](https://git-scm.com/docs/git-status)
-- [git-config documentation](https://git-scm.com/docs/git-config) - `core.preloadindex`, `core.fsmofitor`, etc.
+- [git-config documentation](https://git-scm.com/docs/git-config) - `core.preloadindex`, `core.fsmonitor`, etc.
 - [Scalar and Git performance](https://github.blog/2022-10-13-git-for-windows-2-38-0-released/) - Microsoft's work on git performance

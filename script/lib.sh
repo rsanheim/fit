@@ -1,16 +1,16 @@
-# Shared library for fit scripts
+# Shared library for git-all scripts
 # Source this file: source "$(dirname "$0")/lib.sh"
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FIT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BIN_DIR="${FIT_ROOT}/bin"
+GIT_ALL_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BIN_DIR="${GIT_ALL_ROOT}/bin"
 
-# Discover all executable fit implementations (full paths)
+# Discover all executable git-all implementations (full paths)
 discover_implementations() {
     local impls=()
-    for impl in "${BIN_DIR}"/fit-*; do
+    for impl in "${BIN_DIR}"/git-all-*; do
         [[ -x "$impl" ]] && impls+=("$impl")
     done
     echo "${impls[@]}"
@@ -18,14 +18,15 @@ discover_implementations() {
 
 # Discover implementation names (e.g., "rust", "zig")
 discover_impl_names() {
-    for impl in "${BIN_DIR}"/fit-*; do
-        [[ -x "$impl" ]] && basename "$impl" | sed 's/fit-//'
+    for impl in "${BIN_DIR}"/git-all-*; do
+        [[ -x "$impl" ]] && basename "$impl" | sed 's/git-all-//'
     done
 }
 
-# Discover implementation directories (full paths to fit-* dirs)
+# Discover implementation directories (full paths to rust/, zig/, crystal/ dirs)
 discover_impl_dirs() {
-    for dir in "${FIT_ROOT}/fit-"*; do
+    for lang in rust zig crystal; do
+        local dir="${GIT_ALL_ROOT}/${lang}"
         [[ -d "$dir" ]] && echo "$dir"
     done
 }
@@ -76,16 +77,16 @@ get_test_cmd() {
 # Get implementation directory for type
 get_impl_dir() {
     local impl="$1"
-    echo "${FIT_ROOT}/fit-${impl}"
+    echo "${GIT_ALL_ROOT}/${impl}"
 }
 
 # Get binary output path for implementation type (after release build)
 get_binary_path() {
     local impl="$1"
     case "$impl" in
-        rust)    echo "${FIT_ROOT}/fit-rust/target/release/fit" ;;
-        zig)     echo "${FIT_ROOT}/fit-zig/zig-out/bin/fit" ;;
-        crystal) echo "${FIT_ROOT}/fit-crystal/bin/fit" ;;
+        rust)    echo "${GIT_ALL_ROOT}/rust/target/release/git-all" ;;
+        zig)     echo "${GIT_ALL_ROOT}/zig/zig-out/bin/git-all" ;;
+        crystal) echo "${GIT_ALL_ROOT}/crystal/bin/git-all" ;;
         *)       return 1 ;;
     esac
 }

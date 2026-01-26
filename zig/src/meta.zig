@@ -1,8 +1,8 @@
 const std = @import("std");
 const main = @import("main.zig");
 
-/// Handle `fit meta` subcommands.
-/// Meta mode provides fit-specific commands (help, etc.) rather than git passthrough.
+/// Handle `git-all meta` subcommands.
+/// Meta mode provides git-all-specific commands (help, etc.) rather than git passthrough.
 pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len == 0) {
         try printHelp(allocator);
@@ -30,7 +30,7 @@ fn printHelp(allocator: std.mem.Allocator) !void {
 
     // Print version header
     var header_buf: [128]u8 = undefined;
-    const header = std.fmt.bufPrint(&header_buf, "fit v{s} (git {s})\n\n", .{ main.VERSION, git_version }) catch return;
+    const header = std.fmt.bufPrint(&header_buf, "git-all v{s} (git {s})\n\n", .{ main.VERSION, git_version }) catch return;
     stdout.writeAll(header) catch {};
 
     // Print help text
@@ -73,7 +73,7 @@ fn getGitVersion(allocator: std.mem.Allocator) ![]const u8 {
 
 const help_text =
     \\USAGE:
-    \\    fit [OPTIONS] <COMMAND> [ARGS...]
+    \\    git-all [OPTIONS] <COMMAND> [ARGS...]
     \\
     \\OPTIONS:
     \\    -n, --workers <NUM>   Number of parallel workers (default: 8)
@@ -87,16 +87,16 @@ const help_text =
     \\    pull      Git pull with condensed output
     \\    fetch     Git fetch with condensed output
     \\    status    Git status with condensed output
-    \\    meta      Fit internal commands (help, version info)
+    \\    meta      git-all internal commands (help, version info)
     \\    <any>     Pass-through to git verbatim
     \\
     \\EXAMPLES:
-    \\    fit pull                      Pull all repos
-    \\    fit status                    Status of all repos
-    \\    fit --dry-run pull            Show commands without executing
-    \\    fit -n 4 fetch                Fetch with 4 workers
-    \\    fit checkout main             Switch all repos to main
-    \\    fit meta                      Show this help with version info
+    \\    git-all pull                  Pull all repos
+    \\    git-all status                Status of all repos
+    \\    git-all --dry-run pull        Show commands without executing
+    \\    git-all -n 4 fetch            Fetch with 4 workers
+    \\    git-all checkout main         Switch all repos to main
+    \\    git-all meta                  Show this help with version info
     \\
 ;
 

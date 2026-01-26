@@ -15,7 +15,7 @@ use repo::{find_git_repos, is_inside_git_repo};
 use runner::{ExecutionContext, UrlScheme};
 
 #[derive(Parser)]
-#[command(name = "fit", version, about = "parallel git across many repositories")]
+#[command(name = "git-all", version, about = "parallel git across many repositories")]
 struct Cli {
     /// Print exact commands without executing
     #[arg(long)]
@@ -57,7 +57,7 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Fit internal commands (help, version info)
+    /// git-all internal commands (help, version info)
     Meta {
         /// Subcommand (help is the only option)
         #[arg(trailing_var_arg = true)]
@@ -68,14 +68,14 @@ enum Commands {
     External(Vec<String>),
 }
 
-/// Exec git with all original args, replacing the fit process.
-/// This is used when fit is invoked from inside a git repository.
+/// Exec git with all original args, replacing the git-all process.
+/// This is used when git-all is invoked from inside a git repository.
 #[cfg(unix)]
 fn passthrough_to_git() -> ! {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let err = Command::new("git").args(&args).exec();
     // exec() only returns on error
-    eprintln!("fit: failed to exec git: {}", err);
+    eprintln!("git-all: failed to exec git: {}", err);
     std::process::exit(1);
 }
 
@@ -122,7 +122,7 @@ fn main() -> Result<()> {
 
     if cli.dry_run {
         println!(
-            "[fit v{}] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.",
+            "[git-all v{}] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.",
             env!("CARGO_PKG_VERSION")
         );
     }

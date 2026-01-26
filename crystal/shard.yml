@@ -1,0 +1,10 @@
+name: git-all
+version: 0.6.0
+
+targets:
+  git-all:
+    main: src/git-all.cr
+
+crystal: ">= 1.0.0"
+
+license: MIT

@@ -17,7 +17,7 @@ pub fn run(args: &[String]) {
 fn print_help() {
     let git_version = get_git_version();
     println!(
-        "fit v{} (git {})",
+        "git-all v{} (git {})",
         env!("CARGO_PKG_VERSION"),
         git_version
     );
