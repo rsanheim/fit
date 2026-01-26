@@ -1,11 +1,13 @@
-# fit Specification
+# git-all Specification
 
-Version: 0.1.0
+Version: 0.2.0
 Status: Draft
 
 ## Abstract
 
-This document specifies the behavior of `fit`, a command-line interface for running parallel git operations across multiple repositories. Implementations in any language MUST conform to this specification to be considered compliant.
+This document specifies the behavior of `git-all`, a command-line interface for running parallel git operations across multiple repositories. Implementations in any language MUST conform to this specification to be considered compliant.
+
+*Note: This project was renamed from `fit` to `git-all` in v0.2.0.*
 
 ## Conformance
 
@@ -20,13 +22,13 @@ A conforming implementation:
 
 ## 1. Operating Modes
 
-### 1.0 fit Meta Mode
+### 1.0 git-all Meta Mode
 
-Before anything else, the implementation MUST check for an initial subcommand of 'meta' - ie `fit meta` or `fit meta <subcommand>`.  If found, the implementation MUST pass all args and options to `fit` itself and NOT passthrough to git.
+Before anything else, the implementation MUST check for an initial subcommand of 'meta' - ie `git-all meta` or `git-all meta <subcommand>`.  If found, the implementation MUST pass all args and options to `git-all` itself and NOT passthrough to git.
 
-`fit meta` (with no subcommand) and `fit meta help` MUST print the help message for `fit` itself, including the version of fit and the version of the underlying git implementation.
+`git-all meta` (with no subcommand) and `git-all meta help` MUST print the help message for `git-all` itself, including the version of git-all and the version of the underlying git implementation.
 
-If `fit meta` is not found, the implementation MUST continue with the next operating mode.
+If `git-all meta` is not found, the implementation MUST continue with the next operating mode.
 
 ### 1.1 Passthrough Mode
 
@@ -36,11 +38,11 @@ If `fit meta` is not found, the implementation MUST continue with the next opera
 
 3. If inside a git repository, the implementation MUST exec git with all original command-line arguments unchanged.
 
-4. In passthrough mode, fit-specific flags (`--dry-run`, `--workers`, etc.) MUST be passed through to git verbatim. The implementation MUST NOT parse or interpret these flags.
+4. In passthrough mode, git-all-specific flags (`--dry-run`, `--workers`, etc.) MUST be passed through to git verbatim. The implementation MUST NOT parse or interpret these flags.
 
 5. The implementation MUST NOT check for sub-repositories when in passthrough mode.
 
-6. The exec MUST replace the fit process with git such that exit codes and signals are preserved transparently.
+6. The exec MUST replace the git-all process with git such that exit codes and signals are preserved transparently.
 
 ### 1.2 Multi-Repository Mode
 
@@ -58,9 +60,9 @@ If `fit meta` is not found, the implementation MUST continue with the next opera
 
 3. The default search depth MUST be 1 (immediate subdirectories only).
 
-4. When `--fit-depth N` is specified, the implementation MUST search up to N levels deep.
+4. When `--depth N` is specified, the implementation MUST search up to N levels deep.
 
-5. When `--fit-depth all` is specified, the implementation MUST search recursively without limit, stopping at `.git` boundaries.
+5. When `--depth all` is specified, the implementation MUST search recursively without limit, stopping at `.git` boundaries.
 
 6. The implementation MUST NOT descend into discovered repositories (no nested repository discovery).
 
@@ -159,7 +161,7 @@ If `fit meta` is not found, the implementation MUST continue with the next opera
 
 3. The dry-run output MUST be generated from the same code path that builds actual commands.
 
-4. Dry-run output SHOULD include a header indicating dry-run mode and the fit version.
+4. Dry-run output SHOULD include a header indicating dry-run mode and the git-all version.
 
 #### 6.1.1 Dry-Run Implementation Constraint
 
@@ -198,7 +200,7 @@ else:
 
 3. The default value SHOULD be 8.
 
-### 6.4 --fit-depth
+### 6.4 --depth
 
 **Status: Not yet implemented**
 
@@ -230,23 +232,23 @@ The following symbols are RECOMMENDED for status output:
 
 ## 8. Exit Codes
 
-1. Exit code 0 MUST indicate the fit command itself succeeded.
+1. Exit code 0 MUST indicate the git-all command itself succeeded.
 
 2. The implementation MAY exit non-zero if any individual repository operation failed.
 
-3. Exit code 9 SHOULD be used for fit-level failures (invalid arguments, etc.).
+3. Exit code 9 SHOULD be used for git-all-level failures (invalid arguments, etc.).
 
 ## Appendix A: Grammar
 
 ```
-fit [OPTIONS] <COMMAND> [ARGS...]
+git-all [OPTIONS] <COMMAND> [ARGS...]
 
 OPTIONS:
     --dry-run
     --ssh
     --https
     -n, --workers <N>
-    --fit-depth <N|all>
+    --depth <N|all>
     -h, --help
     -V, --version
 
@@ -264,12 +266,18 @@ ARGS:
 
 ## Appendix C: Changelog
 
-### v0.1.0 (Initial Draft)
+### v0.2.0 (2026-01-26)
 
-* Ifitial specification based on Rust and Zig implementations
-* Added Passthrough Mode (Section 1.1)
+* **Renamed project from `fit` to `git-all`**
+* Updated all command references and examples
+* Renamed `--fit-depth` option to `--depth`
 
 ### v0.1.1 (2026-01-12)
 
 * Added `fit meta` Mode (Section 1.0)
 * Added update exit codes (Section 8)
+
+### v0.1.0 (Initial Draft)
+
+* Initial specification based on Rust and Zig implementations
+* Added Passthrough Mode (Section 1.1)

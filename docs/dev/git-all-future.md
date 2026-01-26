@@ -1,31 +1,31 @@
-# fit - Planned Future Functionality
+# git-all - Planned Future Functionality
 
 **Status: Not yet implemented**
 
-This document describes planned functionality for `fit`, a companion CLI to `fit` that operates on user-configured repository "roots" rather than the current working directory.
+This document describes planned functionality for `git-all-roots`, a companion CLI to `git-all` that operates on user-configured repository "roots" rather than the current working directory.
 
 ---
 
-## fit - Roots-Based Multi-Repo Git
+## git-all-roots - Roots-Based Multi-Repo Git
 
 ```
 NAME
-    fit - parallel git operations across registered repository roots
+    git-all-roots - parallel git operations across registered repository roots
 
 SYNOPSIS
-    fit [OPTIONS] <command> [<args>...]
-    fit roots [add|rm|list] [<path>]
-    fit --help | --version
+    git-all-roots [OPTIONS] <command> [<args>...]
+    git-all-roots roots [add|rm|list] [<path>]
+    git-all-roots --help | --version
 
 DESCRIPTION
-    fit operates on repositories discovered from user-configured "roots".
-    Unlike fit, which starts from CWD, fit uses a persistent configuration
+    git-all-roots operates on repositories discovered from user-configured "roots".
+    Unlike git-all, which starts from CWD, git-all-roots uses a persistent configuration
     to define where your repositories live.
 
-    Run fit from anywhere - it always uses your configured roots.
+    Run git-all-roots from anywhere - it always uses your configured roots.
 
 OPTIONS
-    --fit-depth <N|all>
+    --depth <N|all>
         Search depth within each root (avoids conflict with git's --depth).
         Default: 1
 
@@ -43,42 +43,42 @@ OPTIONS
         Show version.
 
 ROOT MANAGEMENT
-    fit roots
+    git-all-roots roots
         List all configured roots.
 
-    fit roots add <path>
+    git-all-roots roots add <path>
         Add a directory as a root. Path is canonicalized and stored.
 
-    fit roots rm <path>
+    git-all-roots roots rm <path>
         Remove a root from configuration.
 
 EXAMPLES
-    fit roots add ~/src
+    git-all-roots roots add ~/src
         Register ~/src as a root directory.
 
-    fit roots add ~/work
+    git-all-roots roots add ~/work
         Register another root.
 
-    fit roots
+    git-all-roots roots
         List all roots:
           ~/src
           ~/work
 
-    fit status
+    git-all-roots status
         Status of all repos under all roots.
 
-    fit pull -p
+    git-all-roots pull -p
         Pull all repos from all roots.
 
-    fit --fit-depth all fetch
+    git-all-roots --depth all fetch
         Fetch repos recursively within each root.
 
-    fit roots rm ~/old-projects
+    git-all-roots roots rm ~/old-projects
         Remove a root.
 
 CONFIGURATION
     Roots are stored in:
-        ~/.config/fit/roots.toml    (Linux/macOS XDG)
+        ~/.config/git-all/roots.toml    (Linux/macOS XDG)
 
     Format:
         [[roots]]
@@ -110,22 +110,22 @@ Single binary with symlink detection. The binary inspects `argv[0]` to determine
 which mode to run in:
 
 ```
-fit (main binary)
-fit -> fit (symlink)
+git-all (main binary)
+git-all-roots -> git-all (symlink)
 ```
 
 **Detection logic** (works across all implementations):
 
 ```
-basename = get_basename(argv[0])  # strip path, get "fit" or "fit"
-if basename contains "fit":
-    mode = FIT (roots-based)
+basename = get_basename(argv[0])  # strip path, get "git-all" or "git-all-roots"
+if basename contains "roots":
+    mode = ROOTS (roots-based)
 else:
-    mode = FIT (CWD-based)
+    mode = CWD (CWD-based)
 ```
 
 This approach works for:
-* Direct invocation: `./fit`, `./fit`
-* Symlinks: `fit -> fit`
-* Full paths: `/usr/local/bin/fit`
+* Direct invocation: `./git-all`, `./git-all-roots`
+* Symlinks: `git-all-roots -> git-all`
+* Full paths: `/usr/local/bin/git-all`
 * Wrapper scripts named appropriately

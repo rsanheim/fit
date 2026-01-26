@@ -68,8 +68,8 @@ main() {
     echo "=== Updating Homebrew formula for v${VERSION} ==="
 
     # Download and compute SHA256
-    local ARM64_URL="https://github.com/rsanheim/fit/releases/download/v${VERSION}/fit-${VERSION}-darwin-arm64.tar.gz"
-    local X86_64_URL="https://github.com/rsanheim/fit/releases/download/v${VERSION}/fit-${VERSION}-darwin-x86_64.tar.gz"
+    local ARM64_URL="https://github.com/rsanheim/git-all/releases/download/v${VERSION}/git-all-${VERSION}-darwin-arm64.tar.gz"
+    local X86_64_URL="https://github.com/rsanheim/git-all/releases/download/v${VERSION}/git-all-${VERSION}-darwin-x86_64.tar.gz"
 
     echo "Computing SHA256 hashes..."
     echo ""
@@ -88,7 +88,7 @@ main() {
     echo "  x86_64: ${X86_64_SHA}"
     echo ""
 
-    local FORMULA="${TAP_PATH}/Formula/fit.rb"
+    local FORMULA="${TAP_PATH}/Formula/git-all.rb"
 
     if [[ ! -f "$FORMULA" ]]; then
         echo "Formula not found at ${FORMULA}"
@@ -114,7 +114,7 @@ main() {
         echo "Next steps:"
         echo "  cd ${TAP_PATH}"
         echo "  git diff  # verify changes"
-        echo "  git add -A && git commit -m 'fit ${VERSION}' && git push"
+        echo "  git add -A && git commit -m 'git-all ${VERSION}' && git push"
     fi
 }
 

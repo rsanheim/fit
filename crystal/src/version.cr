@@ -1,4 +1,4 @@
-module Fit
+module GitAll
   VERSION = {{ `shards version "#{__DIR__}"`.chomp.stringify }}
 end
 

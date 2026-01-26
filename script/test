@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
-# Run test suites for fit implementations
+# Run test suites for git-all implementations
 source "$(dirname "$0")/lib.sh"
 
 TYPE=""
 VERBOSE=false
 
 show_help() {
-    local impls
-    impls=$(discover_impl_names | tr '\n' ', ' | sed 's/,$//' | sed 's/,/, /g')
     cat <<EOF
-test - Run test suites for fit implementations
+test - Run test suites for git-all implementations
 
 Usage: test [options]
 
 Options:
   -h, --help              Show this help message
-  -t, --type TYPE         Run tests for specific type only ($impls)
+  -t, --type TYPE         Run tests for specific type only (rust, zig, crystal)
   -v, --verbose           Show verbose test output
 
 Examples:

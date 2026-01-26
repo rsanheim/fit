@@ -1,13 +1,13 @@
 # Rust build artifacts
-fit-rust/target/
+rust/target/
 
 # Zig build artifacts
-fit-zig/zig-out/
-fit-zig/.zig-cache/
+zig/zig-out/
+zig/.zig-cache/
 
 # Crystal build artifacts
-fit-crystal/bin/
-fit-crystal/lib/
+crystal/bin/
+crystal/lib/
 
 # Editor/IDE
 .idea/

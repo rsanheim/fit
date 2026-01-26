@@ -7,7 +7,7 @@ const fetch = @import("commands/fetch.zig");
 const status = @import("commands/status.zig");
 const passthrough = @import("commands/passthrough.zig");
 
-pub const VERSION = "0.3.0";
+pub const VERSION = "0.6.0";
 const DEFAULT_WORKERS: usize = 8;
 
 const Command = enum {
@@ -34,10 +34,10 @@ const ParsedArgs = struct {
 
 fn printHelp() void {
     const help =
-        \\fit - parallel git across many repositories
+        \\git-all - parallel git across many repositories
         \\
         \\USAGE:
-        \\    fit [OPTIONS] <COMMAND> [ARGS...]
+        \\    git-all [OPTIONS] <COMMAND> [ARGS...]
         \\
         \\OPTIONS:
         \\    -n, --workers <NUM>   Number of parallel workers (default: 8)
@@ -54,11 +54,11 @@ fn printHelp() void {
         \\    <any>     Pass-through to git verbatim
         \\
         \\EXAMPLES:
-        \\    fit pull                      Pull all repos
-        \\    fit status                    Status of all repos
-        \\    fit --dry-run pull            Show commands without executing
-        \\    fit -n 4 fetch                Fetch with 4 workers
-        \\    fit checkout main             Switch all repos to main
+        \\    git-all pull                  Pull all repos
+        \\    git-all status                Status of all repos
+        \\    git-all --dry-run pull        Show commands without executing
+        \\    git-all -n 4 fetch            Fetch with 4 workers
+        \\    git-all checkout main         Switch all repos to main
         \\
     ;
     const stdout = std.fs.File.stdout();
@@ -68,12 +68,12 @@ fn printHelp() void {
 fn printVersion() void {
     const stdout = std.fs.File.stdout();
     var buf: [64]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "fit {s}\n", .{VERSION}) catch return;
+    const msg = std.fmt.bufPrint(&buf, "git-all {s}\n", .{VERSION}) catch return;
     stdout.writeAll(msg) catch {};
 }
 
-/// Exec git with all original args, replacing the fit process.
-/// This is used when fit is invoked from inside a git repository.
+/// Exec git with all original args, replacing the git-all process.
+/// This is used when git-all is invoked from inside a git repository.
 fn passthroughToGit(allocator: std.mem.Allocator) noreturn {
     // Collect original args, replacing argv[0] with "git"
     var args_iter = std.process.argsWithAllocator(allocator) catch std.process.exit(1);
@@ -82,7 +82,7 @@ fn passthroughToGit(allocator: std.mem.Allocator) noreturn {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
-    // Skip program name (fit) and prepend "git"
+    // Skip program name (git-all) and prepend "git"
     _ = args_iter.next();
     argv.append(allocator, "git") catch std.process.exit(1);
 
@@ -95,12 +95,12 @@ fn passthroughToGit(allocator: std.mem.Allocator) noreturn {
     var child = std.process.Child.init(argv.items, allocator);
 
     child.spawn() catch |err| {
-        std.debug.print("fit: failed to exec git: {s}\n", .{@errorName(err)});
+        std.debug.print("git-all: failed to exec git: {s}\n", .{@errorName(err)});
         std.process.exit(1);
     };
 
     const term = child.wait() catch |err| {
-        std.debug.print("fit: failed to wait for git: {s}\n", .{@errorName(err)});
+        std.debug.print("git-all: failed to wait for git: {s}\n", .{@errorName(err)});
         std.process.exit(1);
     };
 
@@ -273,7 +273,7 @@ pub fn main() !void {
     if (args.dry_run) {
         const stdout = std.fs.File.stdout();
         var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "[fit v{s}] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.\n", .{VERSION}) catch return;
+        const msg = std.fmt.bufPrint(&buf, "[git-all v{s}] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.\n", .{VERSION}) catch return;
         stdout.writeAll(msg) catch {};
     }
 

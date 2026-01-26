@@ -54,7 +54,7 @@ def parse_args(argv : Array(String)) : Options
     end
 
     p.on("-V", "--version", "Print version") do
-      puts "fit #{Fit::VERSION}"
+      puts "git-all #{GitAll::VERSION}"
       exit 0
     end
 

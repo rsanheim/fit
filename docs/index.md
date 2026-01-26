@@ -1,20 +1,20 @@
-# fit
+# git-all
 
-`fit` is a CLI for running parallel git operations across many repositories.
+`git-all` is a CLI for running parallel git operations across many repositories.
 
 ## Operating Modes
 
-**Passthrough Mode**: When inside a git repository, `fit` acts as a transparent wrapper around `git`. All arguments pass through unchanged - `fit status` becomes `git status`.
+**Passthrough Mode**: When inside a git repository, `git-all` acts as a transparent wrapper around `git`. All arguments pass through unchanged - `git-all status` becomes `git status`.
 
-**Multi-Repository Mode**: When NOT inside a git repository, `fit` discovers sub-repos at depth 1 and runs commands across all of them in parallel.
+**Multi-Repository Mode**: When NOT inside a git repository, `git-all` discovers sub-repos at depth 1 and runs commands across all of them in parallel.
 
 ### Optimized Commands
 
-In multi-repository mode, `fit` provides optimized commands with condensed single-line output:
+In multi-repository mode, `git-all` provides optimized commands with condensed single-line output:
 
-* `fit pull` - Pull all repos with single-line status per repo
-* `fit fetch` - Fetch all repos with single-line status per repo
-* `fit status` - Status all repos with single-line status per repo
+* `git-all pull` - Pull all repos with single-line status per repo
+* `git-all fetch` - Fetch all repos with single-line status per repo
+* `git-all status` - Status all repos with single-line status per repo
 
 Any other command passes through to git verbatim for each repo.
 
@@ -39,7 +39,7 @@ script/install -t crystal
 ## Usage
 
 ```
-fit [global options] [command [command options]]
+git-all [global options] [command [command options]]
 
 COMMANDS:
    pull             Pull all repositories
@@ -57,8 +57,8 @@ GLOBAL OPTIONS:
 ## Example: dry-run mode
 
 ```bash
-[~/src/oss] fit pull --dry-run
-[fit v0.1.0] Running in **dry-run mode**, no git commands will be executed.
+[~/src/oss] git-all pull --dry-run
+[git-all v0.6.0] Running in **dry-run mode**, no git commands will be executed.
 git -C ~/src/oss/repo1 pull
 git -C ~/src/oss/repo2 pull
 git -C ~/src/oss/repo3 pull
@@ -88,4 +88,4 @@ Create the sockets directory:
 mkdir -p ~/.ssh/sockets && chmod 700 ~/.ssh/sockets
 ```
 
-This reduces `fit pull` time by ~3x by avoiding repeated SSH handshakes.
+This reduces `git-all pull` time by ~3x by avoiding repeated SSH handshakes.

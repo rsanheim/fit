@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release a new version of fit
+# Release a new version of git-all
 source "$(dirname "$0")/lib.sh"
 
 DRY_RUN=false
@@ -7,7 +7,7 @@ VERSION=""
 
 show_help() {
     cat <<EOF
-release - Release a new version of fit
+release - Release a new version of git-all
 
 Usage: release [options] <version>
 
@@ -16,11 +16,11 @@ Options:
   -h, --help       Show this help message
 
 Arguments:
-  version          Version number (e.g., 0.4.0)
+  version          Version number (e.g., 0.6.0)
 
 Examples:
-  release 0.4.0            # Release version 0.4.0
-  release --dry-run 0.4.0  # Show what would happen
+  release 0.6.0            # Release version 0.6.0
+  release --dry-run 0.6.0  # Show what would happen
 EOF
 }
 
@@ -70,10 +70,10 @@ main() {
     echo "=== Releasing v${VERSION} ==="
 
     # Update Cargo.toml version
-    run sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" "${FIT_ROOT}/fit-rust/Cargo.toml"
+    run sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" "${GIT_ALL_ROOT}/rust/Cargo.toml"
 
     # Commit version bump
-    run git add "${FIT_ROOT}/fit-rust/Cargo.toml"
+    run git add "${GIT_ALL_ROOT}/rust/Cargo.toml"
     run git commit -m "Bump version to ${VERSION}"
 
     # Create and push tag

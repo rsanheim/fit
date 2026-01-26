@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Consolidated benchmark script for fit implementations
+# Consolidated benchmark script for git-all implementations
 source "$(dirname "$0")/lib.sh"
 
 # Defaults
@@ -16,7 +16,7 @@ WORKER_LIST="1,2,4,8,12,16"
 
 show_help() {
     cat <<'EOF'
-bench - Benchmark fit implementations
+bench - Benchmark git-all implementations
 
 Usage: bench <subcommand> [options] [-- hyperfine-flags]
 
@@ -114,7 +114,7 @@ bench git - Compare git commits/branches of an implementation
 Usage: bench git [options] [-- hyperfine-flags]
 
 Builds binaries from two git refs and compares their performance.
-Binaries are saved to /tmp with descriptive names (e.g., fit-rust-main-abc123).
+Binaries are saved to /tmp with descriptive names (e.g., git-all-rust-main-abc123).
 
 Options:
   -I, --impl IMPL       Implementation to compare (default: rust)
@@ -171,7 +171,7 @@ cmd_compare() {
     IMPLEMENTATIONS=($(discover_implementations))
     [[ ${#IMPLEMENTATIONS[@]} -eq 0 ]] && { echo "No implementations found in ${BIN_DIR}"; exit 1; }
 
-    echo "=== Benchmarking: fit $CMD (workers=$WORKERS) ==="
+    echo "=== Benchmarking: git-all $CMD (workers=$WORKERS) ==="
     echo "Implementations: ${IMPLEMENTATIONS[*]}"
     echo
 
@@ -209,19 +209,19 @@ cmd_scale() {
         esac
     done
 
-    NIT="${BIN_DIR}/fit-${IMPL}"
+    IMPL_BIN="${BIN_DIR}/git-all-${IMPL}"
 
-    if [[ ! -x "$NIT" ]]; then
-        echo "Implementation not found: $NIT"
+    if [[ ! -x "$IMPL_BIN" ]]; then
+        echo "Implementation not found: $IMPL_BIN"
         echo "Available: $(discover_impl_names | tr '\n' ' ')"
         exit 1
     fi
 
-    echo "=== Worker Scaling: fit-${IMPL} $CMD ==="
+    echo "=== Worker Scaling: git-all-${IMPL} $CMD ==="
     echo "Workers: $WORKER_LIST"
     echo
 
-    local bench_cmd="$NIT -n {workers} $CMD"
+    local bench_cmd="$IMPL_BIN -n {workers} $CMD"
     [[ -n "$BENCH_DIR" ]] && bench_cmd="cd '$BENCH_DIR' && $bench_cmd"
 
     hyperfine \
@@ -290,8 +290,8 @@ cmd_git() {
     local BASELINE_NAME="$BASELINE_REF"
     local TARGET_NAME="$TARGET_REF"
 
-    local BASELINE_BIN="/tmp/fit-${IMPL}-${BASELINE_NAME}-${BASELINE_SHA}"
-    local TARGET_BIN="/tmp/fit-${IMPL}-${TARGET_NAME}-${TARGET_SHA}"
+    local BASELINE_BIN="/tmp/git-all-${IMPL}-${BASELINE_NAME}-${BASELINE_SHA}"
+    local TARGET_BIN="/tmp/git-all-${IMPL}-${TARGET_NAME}-${TARGET_SHA}"
 
     local IMPL_DIR
     IMPL_DIR=$(get_impl_dir "$IMPL")
@@ -337,7 +337,7 @@ cmd_git() {
     fi
     trap - EXIT
 
-    echo "=== Benchmarking: fit $CMD (workers=$WORKERS) ==="
+    echo "=== Benchmarking: git-all $CMD (workers=$WORKERS) ==="
     echo "Baseline: $BASELINE_NAME-$BASELINE_SHA"
     echo "Target:   $TARGET_NAME-$TARGET_SHA"
     echo
@@ -393,7 +393,7 @@ cmd_suite() {
     echo "## Worker Scaling (status)"
     echo
     for impl in $(discover_impl_names); do
-        echo "### fit-${impl}"
+        echo "### git-all-${impl}"
         echo
         echo '```'
         IMPL="$impl" CMD="status" WORKER_LIST="1,2,4,8" cmd_scale 2>&1
