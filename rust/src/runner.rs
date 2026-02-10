@@ -1,10 +1,10 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
 
-use crate::repo::repo_name;
+use crate::repo::repo_display_name;
 
 /// Simple counting semaphore using stdlib primitives.
 /// Allows limiting concurrent operations to N at a time.
@@ -38,7 +38,8 @@ impl Semaphore {
     }
 }
 
-const MAX_REPO_NAME_WIDTH: usize = 24;
+const MIN_REPO_NAME_WIDTH: usize = 4;
+const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
 
 /// URL scheme to force for git operations
 #[derive(Clone, Copy)]
@@ -50,13 +51,29 @@ pub enum UrlScheme {
 }
 
 /// Format repo name with fixed width: truncate long names, pad short ones
-fn format_repo_name(name: &str) -> String {
-    let display_name = if name.len() > MAX_REPO_NAME_WIDTH {
-        format!("{}-...", &name[..MAX_REPO_NAME_WIDTH - 4])
+fn compute_name_width(repos: &[PathBuf], display_root: &Path) -> usize {
+    let mut max_len = 0usize;
+    for repo in repos {
+        let name = repo_display_name(repo, display_root);
+        max_len = max_len.max(name.len());
+    }
+
+    let capped = max_len.min(MAX_REPO_NAME_WIDTH_CAP);
+    capped.max(MIN_REPO_NAME_WIDTH)
+}
+
+/// Format repo name with fixed width: truncate long names, pad short ones
+fn format_repo_name(name: &str, width: usize) -> String {
+    let display_name = if name.len() > width {
+        if width <= 4 {
+            name.chars().take(width).collect()
+        } else {
+            format!("{}-...", &name[..width - 4])
+        }
     } else {
         name.to_string()
     };
-    format!("[{:<width$}]", display_name, width = MAX_REPO_NAME_WIDTH)
+    format!("[{:<width$}]", display_name, width = width)
 }
 
 /// Execution context holding configuration for running git commands
@@ -64,14 +81,21 @@ pub struct ExecutionContext {
     dry_run: bool,
     url_scheme: Option<UrlScheme>,
     max_connections: usize,
+    display_root: PathBuf,
 }
 
 impl ExecutionContext {
-    pub fn new(dry_run: bool, url_scheme: Option<UrlScheme>, max_connections: usize) -> Self {
+    pub fn new(
+        dry_run: bool,
+        url_scheme: Option<UrlScheme>,
+        max_connections: usize,
+        display_root: PathBuf,
+    ) -> Self {
         Self {
             dry_run,
             url_scheme,
             max_connections,
+            display_root,
         }
     }
 
@@ -85,6 +109,10 @@ impl ExecutionContext {
 
     pub fn max_connections(&self) -> usize {
         self.max_connections
+    }
+
+    pub fn display_root(&self) -> &std::path::Path {
+        &self.display_root
     }
 }
 
@@ -176,6 +204,8 @@ where
         return Ok(());
     }
 
+    let name_width = compute_name_width(repos, ctx.display_root());
+
     let max_workers = ctx.max_connections();
 
     let semaphore = if max_workers > 0 && max_workers < repos.len() {
@@ -218,7 +248,13 @@ where
 
             while next_to_print < results.len() {
                 if let Some((ref repo_path, ref res)) = results[next_to_print] {
-                    print_result(repo_path, res, formatter);
+                    print_result(
+                        repo_path,
+                        res,
+                        formatter,
+                        ctx.display_root(),
+                        name_width,
+                    );
                     next_to_print += 1;
                 } else {
                     break;
@@ -235,14 +271,16 @@ fn print_result(
     repo_path: &std::path::Path,
     result: &Result<Output, std::io::Error>,
     formatter: &dyn OutputFormatter,
+    display_root: &std::path::Path,
+    name_width: usize,
 ) {
-    let name = repo_name(repo_path);
+    let name = repo_display_name(repo_path, display_root);
     let output_line = match result {
         Ok(output) => {
             let formatted = formatter.format(output);
-            format!("{} {}", format_repo_name(&name), formatted)
+            format!("{} {}", format_repo_name(&name, name_width), formatted)
         }
-        Err(e) => format!("{} ERROR: {}", format_repo_name(&name), e),
+        Err(e) => format!("{} ERROR: {}", format_repo_name(&name, name_width), e),
     };
     println!("{}", output_line);
 }
@@ -253,22 +291,38 @@ mod tests {
 
     #[test]
     fn test_format_repo_name_short() {
-        let result = format_repo_name("my-repo");
+        let result = format_repo_name("my-repo", 24);
         assert_eq!(result, "[my-repo                 ]");
         assert_eq!(result.len(), 26); // [ + 24 + ]
     }
 
     #[test]
     fn test_format_repo_name_exact_length() {
-        let result = format_repo_name("exactly-twenty-four-chr");
+        let result = format_repo_name("exactly-twenty-four-chr", 24);
         assert_eq!(result.len(), 26);
     }
 
     #[test]
     fn test_format_repo_name_truncated() {
-        let result = format_repo_name("this-is-a-very-long-repository-name");
+        let result = format_repo_name("this-is-a-very-long-repository-name", 24);
         assert_eq!(result, "[this-is-a-very-long--...]");
         assert_eq!(result.len(), 26);
+    }
+
+    #[test]
+    fn test_compute_name_width_caps_and_min() {
+        let root = PathBuf::from("/workspace");
+        let repos = vec![
+            root.join("a"),
+            root.join("short"),
+            root.join("this-is-a-very-long-repository-name-that-exceeds-cap"),
+        ];
+        let width = compute_name_width(&repos, &root);
+        assert_eq!(width, MAX_REPO_NAME_WIDTH_CAP);
+
+        let tiny = vec![root.join("a")];
+        let tiny_width = compute_name_width(&tiny, &root);
+        assert_eq!(tiny_width, MIN_REPO_NAME_WIDTH);
     }
 
     /// Test that large output (>64KB) doesn't cause pipe buffer deadlock.

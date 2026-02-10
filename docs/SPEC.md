@@ -222,6 +222,10 @@ else:
 
 3. Names exceeding the width SHOULD be truncated with a trailing ellipsis.
 
+4. When scan depth is greater than 1, implementations MUST display repository paths (relative to the current directory) rather than just the leaf directory name, and MAY truncate those paths to fit the configured or calculated maximum width.
+
+5. When scan depth is the default (1), implementations MAY display repository paths instead of just the leaf name.
+
 ### 7.2 Status Symbols
 
 The following symbols are RECOMMENDED for status output:
