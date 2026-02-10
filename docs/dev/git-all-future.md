@@ -25,8 +25,8 @@ DESCRIPTION
     Run git-all-roots from anywhere - it always uses your configured roots.
 
 OPTIONS
-    --depth <N|all>
-        Search depth within each root (avoids conflict with git's --depth).
+    --scan-depth <N|all>
+        Search depth within each root.
         Default: 1
 
     -n, --workers <N>
@@ -70,7 +70,7 @@ EXAMPLES
     git-all-roots pull -p
         Pull all repos from all roots.
 
-    git-all-roots --depth all fetch
+    git-all-roots --scan-depth all fetch
         Fetch repos recursively within each root.
 
     git-all-roots roots rm ~/old-projects

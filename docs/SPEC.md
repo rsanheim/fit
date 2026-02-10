@@ -1,6 +1,6 @@
 # git-all Specification
 
-Version: 0.2.0
+Version: 0.2.1
 Status: Draft
 
 ## Abstract
@@ -60,13 +60,15 @@ If `git-all meta` is not found, the implementation MUST continue with the next o
 
 3. The default search depth MUST be 1 (immediate subdirectories only).
 
-4. When `--depth N` is specified, the implementation MUST search up to N levels deep.
+4. When `--scan-depth N` is specified, the implementation MUST search up to N levels deep.
 
-5. When `--depth all` is specified, the implementation MUST search recursively without limit, stopping at `.git` boundaries.
+5. When `--scan-depth all` is specified, the implementation MUST search recursively without limit, stopping at `.git` boundaries.
 
-6. The implementation MUST NOT descend into discovered repositories (no nested repository discovery).
+6. The implementation MUST NOT accept `--depth` as a discovery option. `--scan-depth` is the only option that controls discovery depth.
 
-7. Repository order in output SHOULD be deterministic. Alphabetical sorting by directory name is RECOMMENDED.
+7. The implementation MUST NOT descend into discovered repositories (no nested repository discovery).
+
+8. Repository order in output SHOULD be deterministic. Alphabetical sorting by directory name is RECOMMENDED.
 
 ### 2.2 Empty Results
 
@@ -200,13 +202,15 @@ else:
 
 3. The default value SHOULD be 8.
 
-### 6.4 --depth
+### 6.4 --scan-depth
 
 **Status: Not yet implemented**
 
 1. This option MUST accept a positive integer or the string "all".
 
 2. The default value MUST be 1.
+
+3. Implementations MUST NOT accept `--depth` as an alias for this option.
 
 ## 7. Output Format
 
@@ -248,7 +252,7 @@ OPTIONS:
     --ssh
     --https
     -n, --workers <N>
-    --depth <N|all>
+    --scan-depth <N|all>
     -h, --help
     -V, --version
 
@@ -265,6 +269,10 @@ ARGS:
 * [Git Documentation](https://git-scm.com/docs)
 
 ## Appendix C: Changelog
+
+### v0.2.1 (2026-02-10)
+
+* Renamed discovery depth option to `--scan-depth` to avoid conflicts with git's `--depth`
 
 ### v0.2.0 (2026-01-26)
 

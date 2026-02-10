@@ -56,6 +56,7 @@ Inside a git repository, `git-all` acts as a transparent wrapper. `git-all statu
 
 ```
 -n, --workers N   Parallel workers (default: 8, 0 = unlimited)
+--scan-depth <N|all>  Repository scan depth (default: 1)
 --dry-run         Print commands without executing
 --https           Force HTTPS URLs for remotes
 --ssh             Force SSH URLs for remotes

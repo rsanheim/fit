@@ -69,4 +69,4 @@ This restores some streaming but still suffers head-of-line blocking when early 
 
 ## References
 - `rust/src/runner.rs`: current buffering and threading model.
-- `SPEC.md`: pipe deadlock handling requirement.
+- [`docs/SPEC.md §3.1 Git Invocation`](../SPEC.md#31-git-invocation): pipe deadlock handling requirement.

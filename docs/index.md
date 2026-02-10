@@ -49,6 +49,7 @@ COMMANDS:
 
 GLOBAL OPTIONS:
    -n, --workers N   Number of parallel workers (default: 8, 0 = unlimited)
+   --scan-depth <N|all>  Repository scan depth (default: 1)
    --dry-run         Print the exact command for every repo without running it
    --ssh             Force SSH URLs (git@github.com:) for all remotes
    --https           Force HTTPS URLs (https://github.com/) for all remotes
