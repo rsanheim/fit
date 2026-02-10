@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared library for git-all scripts
 # Source this file: source "$(dirname "$0")/lib.sh"
 
@@ -9,11 +10,9 @@ BIN_DIR="${GIT_ALL_ROOT}/bin"
 
 # Discover all executable git-all implementations (full paths)
 discover_implementations() {
-    local impls=()
     for impl in "${BIN_DIR}"/git-all-*; do
-        [[ -x "$impl" ]] && impls+=("$impl")
+        [[ -x "$impl" ]] && echo "$impl"
     done
-    echo "${impls[@]}"
 }
 
 # Discover implementation names (e.g., "rust", "zig")

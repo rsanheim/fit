@@ -1,9 +1,12 @@
 [package]
 name = "git-all"
 version = "0.6.0"
-edition = "2021"
+edition = "2024"
 description = "parallel git across many repositories"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
+
+[profile.release]
+lto = "fat"
