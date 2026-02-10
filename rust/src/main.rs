@@ -11,7 +11,7 @@ mod repo;
 mod runner;
 
 use commands::{fetch, passthrough, pull, status};
-use repo::{find_git_repos, is_inside_git_repo};
+use repo::{find_git_repos_in, is_inside_git_repo, parse_scan_depth, ScanDepth};
 use runner::{ExecutionContext, UrlScheme};
 
 #[derive(Parser)]
@@ -32,6 +32,10 @@ struct Cli {
     /// Number of parallel workers (default: 8, 0 = unlimited)
     #[arg(short = 'n', long, default_value = "8")]
     workers: usize,
+
+    /// How deep to scan for repositories (positive integer or "all")
+    #[arg(long, default_value = "1", value_parser = parse_scan_depth, value_name = "DEPTH|all")]
+    scan_depth: ScanDepth,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -104,7 +108,8 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let repos = find_git_repos()?;
+    let cwd = std::env::current_dir()?;
+    let repos = find_git_repos_in(&cwd, cli.scan_depth)?;
     if repos.is_empty() {
         println!("No git repositories found in current directory");
         return Ok(());
@@ -118,7 +123,7 @@ fn main() -> Result<()> {
         None
     };
 
-    let ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers);
+    let ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers, cwd);
 
     if cli.dry_run {
         println!(
