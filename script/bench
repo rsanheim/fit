@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Consolidated benchmark script for git-all implementations
+# shellcheck source-path=SCRIPTDIR
 source "$(dirname "$0")/lib.sh"
 
 # Defaults
@@ -168,7 +169,7 @@ cmd_compare() {
         esac
     done
 
-    IMPLEMENTATIONS=($(discover_implementations))
+    mapfile -t IMPLEMENTATIONS < <(discover_implementations)
     [[ ${#IMPLEMENTATIONS[@]} -eq 0 ]] && { echo "No implementations found in ${BIN_DIR}"; exit 1; }
 
     echo "=== Benchmarking: git-all $CMD (workers=$WORKERS) ==="
@@ -300,32 +301,49 @@ cmd_git() {
     local BINARY_PATH
     BINARY_PATH=$(get_binary_path "$IMPL")
 
-    echo "=== Building $IMPL binaries for comparison ==="
-    echo "Baseline: $BASELINE_REF ($BASELINE_SHA)"
-    echo "Target:   $TARGET_REF ($TARGET_SHA)"
+    echo "=== bench git: configuration ==="
+    echo "Implementation:  $IMPL"
+    echo "Command:         $CMD"
+    echo "Workers:         $WORKERS"
+    [[ -n "$BENCH_DIR" ]] && echo "Bench directory: $BENCH_DIR"
+    echo "Starting ref:    $ORIGINAL_REF"
+    echo
+
+    echo "=== bench git: resolving refs ==="
+    echo "Baseline ref: $BASELINE_REF → $BASELINE_SHA"
+    echo "Target ref:   $TARGET_REF → $TARGET_SHA"
     echo
 
     # Build baseline
+    echo "=== bench git: building baseline ==="
     if [[ -x "$BASELINE_BIN" ]]; then
-        echo "Using cached baseline: $BASELINE_BIN"
+        echo "Using cached binary: $BASELINE_BIN"
     else
-        echo "Building baseline ($BASELINE_REF)..."
-        git checkout "$BASELINE_REF"
+        echo "Checking out $BASELINE_SHA..."
+        git checkout "$BASELINE_SHA"
+        local VERIFIED_SHA
+        VERIFIED_SHA=$(git rev-parse --short HEAD)
+        echo "Verified HEAD: $VERIFIED_SHA"
+        echo "Build command: $BUILD_CMD"
         (cd "$IMPL_DIR" && $BUILD_CMD)
         cp "$BINARY_PATH" "$BASELINE_BIN"
-        echo "Saved: $BASELINE_BIN"
+        echo "Copied binary: $BASELINE_BIN"
     fi
     echo
 
     # Build target
+    echo "=== bench git: building target ==="
     if [[ -x "$TARGET_BIN" ]]; then
-        echo "Using cached target: $TARGET_BIN"
+        echo "Using cached binary: $TARGET_BIN"
     else
-        echo "Building target ($TARGET_REF)..."
-        git checkout "$TARGET_REF"
+        echo "Checking out $TARGET_SHA..."
+        git checkout "$TARGET_SHA"
+        VERIFIED_SHA=$(git rev-parse --short HEAD)
+        echo "Verified HEAD: $VERIFIED_SHA"
+        echo "Build command: $BUILD_CMD"
         (cd "$IMPL_DIR" && $BUILD_CMD)
         cp "$BINARY_PATH" "$TARGET_BIN"
-        echo "Saved: $TARGET_BIN"
+        echo "Copied binary: $TARGET_BIN"
     fi
     echo
 
@@ -337,9 +355,25 @@ cmd_git() {
     fi
     trap - EXIT
 
-    echo "=== Benchmarking: git-all $CMD (workers=$WORKERS) ==="
-    echo "Baseline: $BASELINE_NAME-$BASELINE_SHA"
-    echo "Target:   $TARGET_NAME-$TARGET_SHA"
+    # Pre-flight check: compare binaries
+    echo "=== bench git: pre-flight check ==="
+    local BASELINE_HASH TARGET_HASH
+    BASELINE_HASH=$(shasum -a 256 "$BASELINE_BIN" | awk '{print $1}')
+    TARGET_HASH=$(shasum -a 256 "$TARGET_BIN" | awk '{print $1}')
+    echo "Baseline: $BASELINE_BIN (sha256: ${BASELINE_HASH:0:12}...)"
+    echo "Target:   $TARGET_BIN (sha256: ${TARGET_HASH:0:12}...)"
+    if [[ "$BASELINE_HASH" == "$TARGET_HASH" ]]; then
+        echo "Binaries differ: no"
+        echo "WARNING: binaries are identical -- same commit, same toolchain, or build cache issue?"
+    else
+        echo "Binaries differ: yes"
+    fi
+    echo
+
+    echo "=== bench git: running benchmark ==="
+    echo "Command: git-all $CMD (workers=$WORKERS)"
+    echo "Baseline: $BASELINE_NAME ($BASELINE_SHA)"
+    echo "Target:   $TARGET_NAME ($TARGET_SHA)"
     echo
 
     local BASELINE_CMD="$BASELINE_BIN -n $WORKERS $CMD"
