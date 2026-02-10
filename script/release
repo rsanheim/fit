@@ -70,7 +70,7 @@ main() {
     echo "=== Releasing v${VERSION} ==="
 
     # Update Cargo.toml version
-    run sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" "${GIT_ALL_ROOT}/rust/Cargo.toml"
+    run sed -i'' -e "s/^version = \".*\"/version = \"${VERSION}\"/" "${GIT_ALL_ROOT}/rust/Cargo.toml"
 
     # Commit version bump
     run git add "${GIT_ALL_ROOT}/rust/Cargo.toml"
