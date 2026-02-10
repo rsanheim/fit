@@ -465,6 +465,14 @@ main() {
     SUBCOMMAND="${1:-compare}"
     shift || true
 
+    if [[ -z "$BENCH_DIR" && "$SUBCOMMAND" != "help" ]]; then
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "bench: current directory is a git repository."
+            echo "Please pass -d/--dir to run benchmarks in a parent directory of multiple repos."
+            exit 1
+        fi
+    fi
+
     case "$SUBCOMMAND" in
         compare) cmd_compare "$@" ;;
         git) cmd_git "$@" ;;
