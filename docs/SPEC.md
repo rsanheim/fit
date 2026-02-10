@@ -1,6 +1,6 @@
 # git-all Specification
 
-Version: 0.2.1
+Version: 0.2.2
 Status: Draft
 
 ## Abstract
@@ -117,19 +117,17 @@ If `git-all meta` is not found, the implementation MUST continue with the next o
 
 2. Each repository's output MUST fit on a single line.
 
-3. The output format MUST be: `<repo-name> <status-message>`
+3. The output format MUST use three pipe-delimited columns: `<repo> | <branch> | <message>`. See Section 7.1 for full formatting rules.
 
-4. Repository names exceeding the display width SHOULD be truncated with an ellipsis pattern.
+4. Column widths SHOULD be computed from the actual values and consistent across all rows. See Section 7.1 for width and truncation rules.
 
 ### 4.2 status Command
 
-1. The implementation MUST use `git status --porcelain` or equivalent for machine-readable output.
+1. The implementation MUST use `git status --porcelain -b` for machine-readable output with branch tracking information.
 
 2. The implementation SHOULD use `--no-optional-locks` to avoid index lock contention in parallel execution.
 
-3. A repository with no changes MUST indicate a clean state.
-
-4. The implementation SHOULD show counts of modified and untracked files.
+3. Output MUST conform to Section 7.2 (Status Output Format).
 
 ### 4.3 pull Command
 
@@ -214,29 +212,114 @@ else:
 
 ## 7. Output Format
 
-### 7.1 Repository Name Display
+### 7.1 Output Line Format
 
-1. Repository names MUST be displayed clearly, typically left-aligned.
+#### 7.1.1 Optimized Commands (status, pull, fetch)
 
-2. The implementation SHOULD use a consistent width for repository names.
+Optimized commands MUST use a three-column pipe-delimited format:
 
-3. Names exceeding the width SHOULD be truncated with a trailing ellipsis.
+```
+<repo>                 | <branch>         | <message>
+```
 
-4. When scan depth is greater than 1, implementations MUST display repository paths (relative to the current directory) rather than just the leaf directory name, and MAY truncate those paths to fit the configured or calculated maximum width.
+Example:
 
-5. When scan depth is the default (1), implementations MAY display repository paths instead of just the leaf name.
+```
+my-repo                | main             | clean
+other-repo             | feature/login    | 1 modified, 2 untracked
+third-repo             | HEAD (detached)  | 3 modified
+infra-services-dock... | develop          | clean, 1 ahead
+```
 
-### 7.2 Status Symbols
+Column rules:
 
-The following symbols are RECOMMENDED for status output:
+1. Each column MUST be left-aligned and padded to a consistent width across all rows.
+2. Column widths SHOULD be computed from the actual values in the current run, not a fixed size.
+3. Repo and branch columns SHOULD have a maximum width cap to prevent overly wide output. Values exceeding the cap SHOULD be truncated with a trailing ellipsis (e.g. `...`).
+4. When scan depth is greater than 1, the repo column MUST display paths relative to the current directory rather than just the leaf directory name.
+5. When scan depth is the default (1), implementations MAY display paths instead of just the leaf name.
+6. Detached HEAD state MUST be displayed as `HEAD (detached)` in the branch column.
 
-| Symbol | Meaning |
-|--------|---------|
-| ✓ | Clean, up to date |
-| ↓N | N commits behind remote |
-| ↑N | N commits ahead of remote |
-| MN | N modified files |
-| ?N | N untracked files |
+#### 7.1.2 Passthrough Commands
+
+Passthrough commands MUST use a two-column pipe-delimited format:
+
+```
+<repo>                 | <first-line-of-output>
+```
+
+Example:
+
+```
+my-repo                | commit abc1234 (HEAD -> main)
+other-repo             | commit def5678 (HEAD -> feature/login)
+```
+
+1. The repo column MUST be left-aligned and padded to a consistent width across all rows.
+2. Output SHOULD be the first non-empty line of the command's stdout (or stderr on failure).
+
+### 7.2 Status Output Format
+
+Status output for each repository MUST be a single line using human-readable word format.
+
+#### 7.2.1 Rules
+
+1. A clean repository with no ahead/behind MUST output: `clean`
+2. File change counts MUST use the format `N <type>` where type is one of: *modified*, *added*, *deleted*, *renamed*, *untracked*
+3. Multiple change types MUST be comma-separated: `1 modified, 2 untracked`
+4. Ahead/behind remote counts are RECOMMENDED and MUST use format `N ahead` / `N behind`
+5. When ahead/behind is shown alongside file changes, it MUST appear after file changes
+6. Change types MUST appear in this order: *modified*, *added*, *deleted*, *renamed*, *untracked*, *ahead*, *behind*
+7. Types with zero count MUST be omitted
+
+#### 7.2.2 Porcelain Parsing
+
+Each file's status is determined by the first two characters of `git status --porcelain` output:
+
+* Position 0 (index/staged status): `M`=modified, `A`=added, `D`=deleted, `R`=renamed, `?`=untracked
+* Position 1 (worktree/unstaged status): `M`=modified, `D`=deleted
+
+When a file has both staged and unstaged changes (e.g. `MM`), it MUST be counted once using the index (position 0) status.
+Worktree status (position 1) MUST only be counted when the index status is a space (no staged change).
+
+#### 7.2.3 Expected Output Table
+
+The following table maps `git status --porcelain -b` output to expected *branch* and *message* column values.
+The repo column is determined by the repository path and is not covered here.
+Implementations SHOULD use this table as a conformance test suite.
+
+| Porcelain input | Branch | Message | Description |
+|---|---|---|---|
+| *(empty)* | *(unknown)* | `clean` | No changes, no branch info |
+| `## main` | `main` | `clean` | Clean, no tracking branch |
+| `## main...origin/main` | `main` | `clean` | Clean, up to date with remote |
+| `## HEAD (no branch)` | `HEAD (detached)` | `clean` | Detached HEAD, clean |
+| `## main`\n` M file.txt` | `main` | `1 modified` | One unstaged modification |
+| `## main`\n` M a.txt`\n` M b.txt`\n` M c.txt` | `main` | `3 modified` | Multiple unstaged modifications |
+| `## main`\n`M  file.txt` | `main` | `1 modified` | One staged modification |
+| `## main`\n`MM file.txt` | `main` | `1 modified` | Staged + unstaged mod on same file counts once |
+| `## main`\n`A  file.txt` | `main` | `1 added` | One staged new file |
+| `## main`\n`AM file.txt` | `main` | `1 added` | Staged add, subsequent worktree mod counts as added |
+| `## main`\n`D  file.txt` | `main` | `1 deleted` | One staged deletion |
+| `## main`\n` D file.txt` | `main` | `1 deleted` | One unstaged deletion |
+| `## main`\n`R  old.txt -> new.txt` | `main` | `1 renamed` | One rename |
+| `## main`\n`?? file.txt` | `main` | `1 untracked` | One untracked file |
+| `## main`\n`?? a.txt`\n`?? b.txt` | `main` | `2 untracked` | Multiple untracked files |
+| `## main`\n` M mod.txt`\n`?? new.txt` | `main` | `1 modified, 1 untracked` | Mixed: modified + untracked |
+| `## main`\n` M mod.txt`\n`A  add.txt`\n`?? new.txt` | `main` | `1 modified, 1 added, 1 untracked` | Mixed: multiple types |
+| `## main`\n`M  a.txt`\n`A  b.txt`\n`D  c.txt`\n`R  d.txt -> e.txt`\n`?? f.txt` | `main` | `1 modified, 1 added, 1 deleted, 1 renamed, 1 untracked` | All types present |
+| `## main...origin/main [ahead 2]` | `main` | `clean, 2 ahead` | Clean but ahead of remote |
+| `## main...origin/main [behind 3]` | `main` | `clean, 3 behind` | Clean but behind remote |
+| `## main...origin/main [ahead 2, behind 3]` | `main` | `clean, 2 ahead, 3 behind` | Clean, diverged from remote |
+| `## main...origin/main [ahead 1]`\n` M file.txt` | `main` | `1 modified, 1 ahead` | Modified and ahead |
+| `## feat...origin/feat [ahead 2, behind 1]`\n` M a.txt`\n`?? b.txt` | `feat` | `1 modified, 1 untracked, 2 ahead, 1 behind` | Mixed changes + diverged |
+
+#### 7.2.4 Error Handling
+
+| Condition | Expected output |
+|---|---|
+| Git command fails (non-zero exit) | First non-empty line of stderr |
+| Git command fails with empty stderr | `unknown error` |
 
 ## 8. Exit Codes
 
@@ -273,6 +356,14 @@ ARGS:
 * [Git Documentation](https://git-scm.com/docs)
 
 ## Appendix C: Changelog
+
+### v0.2.2 (2026-02-10)
+
+* Changed optimized command output to three-column pipe-delimited format: `repo | branch | message` (Section 7.1.1)
+* Changed passthrough command output to two-column pipe-delimited format: `repo | output` (Section 7.1.2)
+* Replaced Section 7.2 status symbols with human-readable word format and executable test matrix
+* Updated Section 4.2 to require `--porcelain -b` for branch tracking info
+* Added ahead/behind remote as RECOMMENDED output
 
 ### v0.2.1 (2026-02-10)
 
