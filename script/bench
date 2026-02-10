@@ -259,24 +259,21 @@ cmd_git() {
         esac
     done
 
-    # Save current state
+    # Save current state (for display only; worktrees avoid touching the main tree)
     local ORIGINAL_REF
     ORIGINAL_REF=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || git rev-parse HEAD)
-    local STASHED=false
 
-    # Check for uncommitted changes
-    if ! git diff --quiet || ! git diff --cached --quiet; then
-        echo "Stashing uncommitted changes..."
-        git stash push -m "bench git: temporary stash"
-        STASHED=true
-    fi
+    local WORKTREE_BASELINE_DIR=""
+    local WORKTREE_TARGET_DIR=""
 
     cleanup() {
-        echo "Restoring to $ORIGINAL_REF..."
-        git checkout "$ORIGINAL_REF" 2>/dev/null || true
-        if [[ "$STASHED" == "true" ]]; then
-            echo "Restoring stashed changes..."
-            git stash pop || true
+        if [[ -n "${WORKTREE_BASELINE_DIR:-}" ]]; then
+            git worktree remove --force "$WORKTREE_BASELINE_DIR" 2>/dev/null || true
+            rm -rf "$WORKTREE_BASELINE_DIR" || true
+        fi
+        if [[ -n "${WORKTREE_TARGET_DIR:-}" ]]; then
+            git worktree remove --force "$WORKTREE_TARGET_DIR" 2>/dev/null || true
+            rm -rf "$WORKTREE_TARGET_DIR" || true
         fi
     }
     trap cleanup EXIT
@@ -294,12 +291,19 @@ cmd_git() {
     local BASELINE_BIN="/tmp/git-all-${IMPL}-${BASELINE_NAME}-${BASELINE_SHA}"
     local TARGET_BIN="/tmp/git-all-${IMPL}-${TARGET_NAME}-${TARGET_SHA}"
 
-    local IMPL_DIR
-    IMPL_DIR=$(get_impl_dir "$IMPL")
     local BUILD_CMD
-    BUILD_CMD=$(get_build_cmd "$IMPL")
-    local BINARY_PATH
-    BINARY_PATH=$(get_binary_path "$IMPL")
+    BUILD_CMD=$(get_build_cmd "$IMPL" "release")
+
+    get_worktree_binary_path() {
+        local root="$1"
+        local impl="$2"
+        case "$impl" in
+            rust)    echo "${root}/rust/target/release/git-all" ;;
+            zig)     echo "${root}/zig/zig-out/bin/git-all" ;;
+            crystal) echo "${root}/crystal/bin/git-all" ;;
+            *)       return 1 ;;
+        esac
+    }
 
     echo "=== bench git: configuration ==="
     echo "Implementation:  $IMPL"
@@ -319,14 +323,17 @@ cmd_git() {
     if [[ -x "$BASELINE_BIN" ]]; then
         echo "Using cached binary: $BASELINE_BIN"
     else
-        echo "Checking out $BASELINE_SHA..."
-        git checkout "$BASELINE_SHA"
+        WORKTREE_BASELINE_DIR=$(mktemp -d -t "git-all-bench-${IMPL}-baseline-XXXXXX")
+        echo "Creating baseline worktree: $WORKTREE_BASELINE_DIR"
+        git worktree add --detach "$WORKTREE_BASELINE_DIR" "$BASELINE_SHA"
         local VERIFIED_SHA
-        VERIFIED_SHA=$(git rev-parse --short HEAD)
+        VERIFIED_SHA=$(git -C "$WORKTREE_BASELINE_DIR" rev-parse --short HEAD)
         echo "Verified HEAD: $VERIFIED_SHA"
         echo "Build command: $BUILD_CMD"
-        (cd "$IMPL_DIR" && $BUILD_CMD)
-        cp "$BINARY_PATH" "$BASELINE_BIN"
+        (cd "$WORKTREE_BASELINE_DIR/$IMPL" && $BUILD_CMD)
+        local BASELINE_BINARY_PATH
+        BASELINE_BINARY_PATH=$(get_worktree_binary_path "$WORKTREE_BASELINE_DIR" "$IMPL")
+        cp "$BASELINE_BINARY_PATH" "$BASELINE_BIN"
         echo "Copied binary: $BASELINE_BIN"
     fi
     echo
@@ -336,24 +343,19 @@ cmd_git() {
     if [[ -x "$TARGET_BIN" ]]; then
         echo "Using cached binary: $TARGET_BIN"
     else
-        echo "Checking out $TARGET_SHA..."
-        git checkout "$TARGET_SHA"
-        VERIFIED_SHA=$(git rev-parse --short HEAD)
+        WORKTREE_TARGET_DIR=$(mktemp -d -t "git-all-bench-${IMPL}-target-XXXXXX")
+        echo "Creating target worktree: $WORKTREE_TARGET_DIR"
+        git worktree add --detach "$WORKTREE_TARGET_DIR" "$TARGET_SHA"
+        VERIFIED_SHA=$(git -C "$WORKTREE_TARGET_DIR" rev-parse --short HEAD)
         echo "Verified HEAD: $VERIFIED_SHA"
         echo "Build command: $BUILD_CMD"
-        (cd "$IMPL_DIR" && $BUILD_CMD)
-        cp "$BINARY_PATH" "$TARGET_BIN"
+        (cd "$WORKTREE_TARGET_DIR/$IMPL" && $BUILD_CMD)
+        local TARGET_BINARY_PATH
+        TARGET_BINARY_PATH=$(get_worktree_binary_path "$WORKTREE_TARGET_DIR" "$IMPL")
+        cp "$TARGET_BINARY_PATH" "$TARGET_BIN"
         echo "Copied binary: $TARGET_BIN"
     fi
     echo
-
-    # Return to original ref before benchmarking
-    git checkout "$ORIGINAL_REF"
-    if [[ "$STASHED" == "true" ]]; then
-        git stash pop
-        STASHED=false
-    fi
-    trap - EXIT
 
     # Pre-flight check: compare binaries
     echo "=== bench git: pre-flight check ==="
