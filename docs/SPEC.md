@@ -102,7 +102,7 @@ If `git-all meta` is not found, the implementation MUST continue with the next o
 
 1. If any repository command fails, the implementation MUST continue processing remaining repositories.
 
-2. Error output for a repository SHOULD be prefixed with an indicator such as "ERROR:" or a failure symbol.
+2. For optimized commands, error output for a repository MAY be prefixed with an indicator such as "ERROR:" or a failure symbol, and MUST preserve the underlying stderr line after the prefix. Passthrough commands MUST NOT alter git output (see Section 7.1.2).
 
 3. The implementation SHOULD print a summary of failures at the end when any repositories failed.
 
@@ -242,21 +242,9 @@ Column rules:
 
 #### 7.1.2 Passthrough Commands
 
-Passthrough commands MUST use a two-column pipe-delimited format:
+Passthrough commands MUST NOT be condensed to a single line. Implementations SHOULD display git's stdout/stderr output verbatim, preserving newlines.
 
-```
-<repo>                 | <first-line-of-output>
-```
-
-Example:
-
-```
-my-repo                | commit abc1234 (HEAD -> main)
-other-repo             | commit def5678 (HEAD -> feature/login)
-```
-
-1. The repo column MUST be left-aligned and padded to a consistent width across all rows.
-2. Output SHOULD be the first non-empty line of the command's stdout (or stderr on failure).
+If a repository label is added, it MUST be on its own line before the command output and MUST NOT alter the git output itself.
 
 ### 7.2 Status Output Format
 
@@ -316,10 +304,12 @@ Implementations SHOULD use this table as a conformance test suite.
 
 #### 7.2.4 Error Handling
 
+For optimized command output, the message column MUST contain the first non-empty line of stderr. Implementations MAY prefix this line with "ERROR:" or a failure symbol; when prefixed, the stderr line MUST be preserved verbatim after the prefix.
+
 | Condition | Expected output |
 |---|---|
-| Git command fails (non-zero exit) | First non-empty line of stderr |
-| Git command fails with empty stderr | `unknown error` |
+| Git command fails (non-zero exit) | First non-empty line of stderr (optionally prefixed) |
+| Git command fails with empty stderr | `unknown error` (optionally prefixed) |
 
 ## 8. Exit Codes
 
@@ -360,7 +350,8 @@ ARGS:
 ### v0.2.2 (2026-02-10)
 
 * Changed optimized command output to three-column pipe-delimited format: `repo | branch | message` (Section 7.1.1)
-* Changed passthrough command output to two-column pipe-delimited format: `repo | output` (Section 7.1.2)
+* Clarified passthrough command output is not condensed and preserves git output (Section 7.1.2)
+* Clarified optimized error prefixing is optional and must preserve stderr content (Sections 3.3, 7.2.4)
 * Replaced Section 7.2 status symbols with human-readable word format and executable test matrix
 * Updated Section 4.2 to require `--porcelain -b` for branch tracking info
 * Added ahead/behind remote as RECOMMENDED output
