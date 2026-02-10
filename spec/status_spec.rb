@@ -13,11 +13,7 @@ RSpec.describe "git-all status" do
     end
 
     it "shows clean for a repo with a tracking branch" do
-      upstream = Dir.mktmpdir("upstream-")
-      begin
-        create_upstream_repo(upstream)
-        repo = create_tracking_repo("tracked-repo", upstream)
-
+      with_tracking_repo("tracked-repo") do |_repo, _upstream|
         result = run_git_all("status")
         rows = parse_output(result.stdout)
 
@@ -25,8 +21,6 @@ RSpec.describe "git-all status" do
         expect(row).not_to be_nil
         expect(row.branch).to eq("main")
         expect(row.message).to eq("clean")
-      ensure
-        FileUtils.rm_rf(upstream)
       end
     end
 
@@ -87,10 +81,10 @@ RSpec.describe "git-all status" do
       repo = create_repo("mm-repo")
       filepath = File.join(repo, "both.txt")
       File.write(filepath, "original\n")
-      git_in(repo, "add", "both.txt")
-      git_in(repo, "commit", "-m", "Add both.txt")
+      git(repo, "add", "both.txt")
+      git(repo, "commit", "-m", "Add both.txt")
       File.write(filepath, "staged change\n")
-      git_in(repo, "add", "both.txt")
+      git(repo, "add", "both.txt")
       File.write(filepath, "unstaged change on top\n")
 
       result = run_git_all("status")
@@ -117,7 +111,7 @@ RSpec.describe "git-all status" do
       repo = create_repo("am-repo")
       filepath = File.join(repo, "am-file.txt")
       File.write(filepath, "new file\n")
-      git_in(repo, "add", "am-file.txt")
+      git(repo, "add", "am-file.txt")
       File.write(filepath, "modified after staging\n")
 
       result = run_git_all("status")
@@ -210,15 +204,15 @@ RSpec.describe "git-all status" do
       File.write(File.join(repo, "mod.txt"), "original\n")
       File.write(File.join(repo, "del.txt"), "will be deleted\n")
       File.write(File.join(repo, "old.txt"), "will be renamed\n")
-      git_in(repo, "add", "mod.txt", "del.txt", "old.txt")
-      git_in(repo, "commit", "-m", "Add files")
+      git(repo, "add", "mod.txt", "del.txt", "old.txt")
+      git(repo, "commit", "-m", "Add files")
 
       # Now create all states at once (no intermediate commits)
       File.write(File.join(repo, "mod.txt"), "modified\n")
-      git_in(repo, "rm", "del.txt")
-      git_in(repo, "mv", "old.txt", "new.txt")
+      git(repo, "rm", "del.txt")
+      git(repo, "mv", "old.txt", "new.txt")
       File.write(File.join(repo, "add.txt"), "new file\n")
-      git_in(repo, "add", "add.txt")
+      git(repo, "add", "add.txt")
       File.write(File.join(repo, "untracked.txt"), "untracked\n")
 
       result = run_git_all("status")
@@ -231,10 +225,7 @@ RSpec.describe "git-all status" do
 
   context "ahead/behind tracking" do
     it "shows clean, 2 ahead when ahead of remote" do
-      upstream = Dir.mktmpdir("upstream-")
-      begin
-        create_upstream_repo(upstream)
-        repo = create_tracking_repo("ahead-repo", upstream)
+      with_tracking_repo("ahead-repo") do |repo, _upstream|
         make_ahead(repo, 2)
 
         result = run_git_all("status")
@@ -242,16 +233,11 @@ RSpec.describe "git-all status" do
 
         row = find_repo(rows, "ahead-repo")
         expect(row.message).to eq("clean, 2 ahead")
-      ensure
-        FileUtils.rm_rf(upstream)
       end
     end
 
     it "shows clean, 3 behind when behind remote" do
-      upstream = Dir.mktmpdir("upstream-")
-      begin
-        create_upstream_repo(upstream)
-        repo = create_tracking_repo("behind-repo", upstream)
+      with_tracking_repo("behind-repo") do |repo, upstream|
         make_behind(upstream, repo, 3)
 
         result = run_git_all("status")
@@ -259,16 +245,11 @@ RSpec.describe "git-all status" do
 
         row = find_repo(rows, "behind-repo")
         expect(row.message).to eq("clean, 3 behind")
-      ensure
-        FileUtils.rm_rf(upstream)
       end
     end
 
     it "shows clean, 2 ahead, 3 behind when diverged" do
-      upstream = Dir.mktmpdir("upstream-")
-      begin
-        create_upstream_repo(upstream)
-        repo = create_tracking_repo("diverged-repo", upstream)
+      with_tracking_repo("diverged-repo") do |repo, upstream|
         make_ahead(repo, 2)
         make_behind(upstream, repo, 3)
 
@@ -277,18 +258,12 @@ RSpec.describe "git-all status" do
 
         row = find_repo(rows, "diverged-repo")
         expect(row.message).to eq("clean, 2 ahead, 3 behind")
-      ensure
-        FileUtils.rm_rf(upstream)
       end
     end
 
     it "shows 1 modified, 1 ahead when modified and ahead" do
-      upstream = Dir.mktmpdir("upstream-")
-      begin
-        create_upstream_repo(upstream)
-        repo = create_tracking_repo("mod-ahead-repo", upstream)
+      with_tracking_repo("mod-ahead-repo") do |repo, _upstream|
         make_ahead(repo, 1)
-        # Modify an existing file (no new commit) to avoid incrementing ahead count
         File.write(File.join(repo, "README.md"), "modified\n")
 
         result = run_git_all("status")
@@ -296,19 +271,13 @@ RSpec.describe "git-all status" do
 
         row = find_repo(rows, "mod-ahead-repo")
         expect(row.message).to eq("1 modified, 1 ahead")
-      ensure
-        FileUtils.rm_rf(upstream)
       end
     end
 
     it "shows mixed changes + diverged" do
-      upstream = Dir.mktmpdir("upstream-")
-      begin
-        create_upstream_repo(upstream)
-        repo = create_tracking_repo("mixed-diverged-repo", upstream)
+      with_tracking_repo("mixed-diverged-repo") do |repo, upstream|
         make_ahead(repo, 2)
         make_behind(upstream, repo, 1)
-        # Modify an existing file (no new commit) to avoid incrementing ahead count
         File.write(File.join(repo, "README.md"), "modified\n")
         add_untracked_file(repo, "b.txt")
 
@@ -317,19 +286,8 @@ RSpec.describe "git-all status" do
 
         row = find_repo(rows, "mixed-diverged-repo")
         expect(row.message).to eq("1 modified, 1 untracked, 2 ahead, 1 behind")
-      ensure
-        FileUtils.rm_rf(upstream)
       end
     end
   end
 
-  private
-
-  def git_in(repo, *args)
-    stdout, stderr, status = Open3.capture3("git", "-C", repo, *args)
-    unless status.success?
-      raise "git -C #{repo} #{args.join(" ")} failed:\nstdout: #{stdout}\nstderr: #{stderr}"
-    end
-    stdout
-  end
 end

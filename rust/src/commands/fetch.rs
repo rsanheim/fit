@@ -12,20 +12,16 @@ impl OutputFormatter for FetchFormatter {
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         if !output.status.success() {
-            return FormattedResult {
-                branch: String::new(),
-                message: stderr.lines().next().unwrap_or("unknown error").to_string(),
-            };
+            return FormattedResult::message_only(
+                stderr.lines().next().unwrap_or("unknown error").to_string(),
+            );
         }
 
         let has_output = stdout.lines().any(|l| !l.trim().is_empty())
             || stderr.lines().any(|l| !l.trim().is_empty() && !l.starts_with("From"));
 
         if !has_output {
-            return FormattedResult {
-                branch: String::new(),
-                message: "no new commits".to_string(),
-            };
+            return FormattedResult::message_only("no new commits".to_string());
         }
 
         let (branch_count, tag_count) = stdout
@@ -43,16 +39,10 @@ impl OutputFormatter for FetchFormatter {
             if tag_count > 0 {
                 parts.push(format!("{} tag{}", tag_count, if tag_count == 1 { "" } else { "s" }));
             }
-            return FormattedResult {
-                branch: String::new(),
-                message: format!("{} updated", parts.join(", ")),
-            };
+            return FormattedResult::message_only(format!("{} updated", parts.join(", ")));
         }
 
-        FormattedResult {
-            branch: String::new(),
-            message: "fetched".to_string(),
-        }
+        FormattedResult::message_only("fetched".to_string())
     }
 }
 

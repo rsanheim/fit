@@ -1,17 +1,15 @@
-require "open3"
-
 RSpec.describe "git-all passthrough" do
   it "preserves full git output for passthrough commands" do
     repo_a = create_repo("alpha")
     repo_b = create_repo("beta")
 
     File.write(File.join(repo_a, "alpha.txt"), "alpha\n")
-    git_in(repo_a, "add", "alpha.txt")
-    git_in(repo_a, "commit", "-m", "alpha-commit")
+    git(repo_a, "add", "alpha.txt")
+    git(repo_a, "commit", "-m", "alpha-commit")
 
     File.write(File.join(repo_b, "beta.txt"), "beta\n")
-    git_in(repo_b, "add", "beta.txt")
-    git_in(repo_b, "commit", "-m", "beta-commit")
+    git(repo_b, "add", "beta.txt")
+    git(repo_b, "commit", "-m", "beta-commit")
 
     expected_stdout = +""
     expected_stderr = +""
@@ -31,13 +29,4 @@ RSpec.describe "git-all passthrough" do
     expect(result.stderr).to eq(expected_stderr)
   end
 
-  private
-
-  def git_in(repo, *args)
-    stdout, stderr, status = Open3.capture3("git", "-C", repo, *args)
-    unless status.success?
-      raise "git -C #{repo} #{args.join(" ")} failed:\nstdout: #{stdout}\nstderr: #{stderr}"
-    end
-    stdout
-  end
 end

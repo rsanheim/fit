@@ -34,6 +34,17 @@ module RepoBuilder
     path
   end
 
+  def with_tracking_repo(name)
+    upstream = Dir.mktmpdir("upstream-")
+    begin
+      create_upstream_repo(upstream)
+      repo = create_tracking_repo(name, upstream)
+      yield repo, upstream
+    ensure
+      FileUtils.rm_rf(upstream)
+    end
+  end
+
   def add_modified_file(repo, filename = "modified.txt")
     filepath = File.join(repo, filename)
     File.write(filepath, "original content\n")
@@ -107,8 +118,6 @@ module RepoBuilder
     end
     git(clone, "fetch")
   end
-
-  private
 
   def git(repo, *args)
     stdout, stderr, status = Open3.capture3("git", "-C", repo, *args)

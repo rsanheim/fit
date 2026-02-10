@@ -61,10 +61,9 @@ impl OutputFormatter for StatusFormatter {
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         if !output.status.success() {
-            return FormattedResult {
-                branch: String::new(),
-                message: stderr.lines().next().unwrap_or("unknown error").to_string(),
-            };
+            return FormattedResult::message_only(
+                stderr.lines().next().unwrap_or("unknown error").to_string(),
+            );
         }
 
         let mut branch = String::new();

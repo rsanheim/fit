@@ -245,6 +245,17 @@ pub struct FormattedResult {
     pub message: String,
 }
 
+impl FormattedResult {
+    /// Create a result with only a message, leaving branch empty.
+    /// Used by formatters (fetch, pull) that don't extract branch info from output.
+    pub fn message_only(message: String) -> Self {
+        Self {
+            branch: String::new(),
+            message,
+        }
+    }
+}
+
 /// Trait for formatting command output into a structured result
 pub trait OutputFormatter: Sync {
     fn format(&self, output: &Output) -> FormattedResult;
