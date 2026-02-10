@@ -149,6 +149,14 @@ parse_global_opt_flag() {
     HYPERFINE_OPTS+=("$1")
 }
 
+require_bench_dir_if_in_repo() {
+    if [[ -z "$BENCH_DIR" ]] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "bench: current directory is a git repository."
+        echo "Please pass -d/--dir to run benchmarks in a parent directory of multiple repos."
+        exit 1
+    fi
+}
+
 cmd_compare() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -168,6 +176,8 @@ cmd_compare() {
                 ;;
         esac
     done
+
+    require_bench_dir_if_in_repo
 
     mapfile -t IMPLEMENTATIONS < <(discover_implementations)
     [[ ${#IMPLEMENTATIONS[@]} -eq 0 ]] && { echo "No implementations found in ${BIN_DIR}"; exit 1; }
@@ -209,6 +219,8 @@ cmd_scale() {
                 ;;
         esac
     done
+
+    require_bench_dir_if_in_repo
 
     IMPL_BIN="${BIN_DIR}/git-all-${IMPL}"
 
@@ -258,6 +270,8 @@ cmd_git() {
                 ;;
         esac
     done
+
+    require_bench_dir_if_in_repo
 
     # Save current state (for display only; worktrees avoid touching the main tree)
     local ORIGINAL_REF
@@ -408,6 +422,8 @@ cmd_suite() {
         esac
     done
 
+    require_bench_dir_if_in_repo
+
     echo "# Benchmark Results - $(date '+%Y-%m-%d')"
     echo
     echo "## Environment"
@@ -464,14 +480,6 @@ main() {
 
     SUBCOMMAND="${1:-compare}"
     shift || true
-
-    if [[ -z "$BENCH_DIR" && "$SUBCOMMAND" != "help" ]]; then
-        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            echo "bench: current directory is a git repository."
-            echo "Please pass -d/--dir to run benchmarks in a parent directory of multiple repos."
-            exit 1
-        fi
-    fi
 
     case "$SUBCOMMAND" in
         compare) cmd_compare "$@" ;;
