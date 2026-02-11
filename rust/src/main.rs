@@ -112,7 +112,7 @@ fn main() -> Result<()> {
     let repos = find_git_repos_in(&cwd, cli.scan_depth)?;
     if repos.is_empty() {
         println!("No git repositories found in current directory");
-        return Ok(());
+        std::process::exit(9);
     }
 
     let url_scheme = if cli.ssh {
@@ -136,12 +136,74 @@ fn main() -> Result<()> {
         Some(Commands::Pull { args }) => pull::run(&ctx, &repos, &args),
         Some(Commands::Fetch { args }) => fetch::run(&ctx, &repos, &args),
         Some(Commands::Status { args }) => status::run(&ctx, &repos, &args),
-        Some(Commands::External(args)) => passthrough::run(&ctx, &repos, &args),
+        Some(Commands::External(args)) => {
+            let resolved =
+                resolve_git_alias(&args[0]).and_then(|v| optimized_command_for(&v));
+            match resolved {
+                Some("status") => status::run(&ctx, &repos, &args[1..]),
+                Some("pull") => pull::run(&ctx, &repos, &args[1..]),
+                Some("fetch") => fetch::run(&ctx, &repos, &args[1..]),
+                _ => passthrough::run(&ctx, &repos, &args),
+            }
+        }
         Some(Commands::Meta { .. }) => unreachable!(), // handled above
         None => {
             // No command given - show help
             println!("No command specified. Use --help for usage information.");
             Ok(())
+        }
+    }
+}
+
+/// Ask git for the alias value of `name`. Returns `None` if the alias
+/// doesn't exist, git isn't installed, or any other error occurs.
+fn resolve_git_alias(name: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["config", "--get", &format!("alias.{name}")])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// If `alias_value` resolves to one of our optimized commands, return
+/// the canonical command name. Only the first word is considered; shell
+/// aliases (starting with `!`) are never matched.
+fn optimized_command_for(alias_value: &str) -> Option<&'static str> {
+    let first_word = alias_value.split_whitespace().next()?;
+    match first_word {
+        "status" => Some("status"),
+        "pull" => Some("pull"),
+        "fetch" => Some("fetch"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optimized_command_for_resolves_aliases() {
+        let cases = [
+            ("status", Some("status")),
+            ("status -sb", Some("status")),
+            ("pull --rebase", Some("pull")),
+            ("fetch --all", Some("fetch")),
+            ("!git log --oneline", None),
+            ("log --oneline", None),
+            ("", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(optimized_command_for(input), expected, "input: {input:?}");
         }
     }
 }
