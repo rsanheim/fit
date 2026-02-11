@@ -41,8 +41,7 @@ impl Semaphore {
 
 const MIN_REPO_NAME_WIDTH: usize = 4;
 const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
-const MIN_BRANCH_WIDTH: usize = 4;
-const MAX_BRANCH_WIDTH_CAP: usize = 24;
+const MAX_BRANCH_WIDTH_CAP: usize = 14;
 
 /// URL scheme to force for git operations
 #[derive(Clone, Copy)]
@@ -63,17 +62,6 @@ fn compute_name_width(repos: &[PathBuf], display_root: &Path) -> usize {
 
     let capped = max_len.min(MAX_REPO_NAME_WIDTH_CAP);
     capped.max(MIN_REPO_NAME_WIDTH)
-}
-
-/// Compute the display width for the branch column
-fn compute_branch_width(results: &[(String, String, String)]) -> usize {
-    let max_len = results
-        .iter()
-        .map(|(_, branch, _)| branch.len())
-        .max()
-        .unwrap_or(0);
-    let capped = max_len.min(MAX_BRANCH_WIDTH_CAP);
-    capped.max(MIN_BRANCH_WIDTH)
 }
 
 /// Format a value into a fixed-width column: truncate with `...`, pad short values
@@ -261,10 +249,11 @@ pub trait OutputFormatter: Sync {
     fn format(&self, output: &Output) -> FormattedResult;
 }
 
-/// Run commands in parallel across all repos, collecting results for aligned output.
+/// Run commands in parallel across all repos with streaming output.
 ///
-/// All results are collected before printing to compute column widths.
-/// Each worker thread also resolves the current branch via rev-parse.
+/// Results are printed progressively using head-of-line blocking: as each result
+/// arrives, all contiguous results from the front are printed immediately.
+/// Uses a fixed branch column width so output can stream without waiting for all results.
 /// Output is printed in alphabetical order (repos are pre-sorted).
 ///
 /// Uses thread-per-process pattern with `wait_with_output()` which is deadlock-safe
@@ -289,6 +278,7 @@ where
     }
 
     let name_width = compute_name_width(repos, ctx.display_root());
+    let branch_width = MAX_BRANCH_WIDTH_CAP;
 
     let max_workers = ctx.max_connections();
 
@@ -324,22 +314,19 @@ where
         }
         drop(tx);
 
-        // Collect all results
         let mut results: Vec<Option<(PathBuf, String, Result<Output, std::io::Error>)>> =
             (0..repos.len()).map(|_| None).collect();
+        let mut next_to_print = 0;
 
         for (idx, repo, branch, result) in rx {
             results[idx] = Some((repo, branch, result));
-        }
 
-        // Format all results into (name, branch, message) tuples
-        let formatted: Vec<(String, String, String)> = results
-            .into_iter()
-            .map(|r| {
-                let (repo_path, pre_branch, output_result) = r.unwrap();
+            while next_to_print < results.len() && results[next_to_print].is_some() {
+                let (repo_path, pre_branch, output_result) =
+                    results[next_to_print].take().unwrap();
                 let name = repo_display_name(&repo_path, ctx.display_root());
 
-                match output_result {
+                let (branch, message) = match output_result {
                     Ok(ref output) => {
                         let fr = formatter.format(output);
                         let branch = if fr.branch.is_empty() {
@@ -347,22 +334,19 @@ where
                         } else {
                             fr.branch
                         };
-                        (name, branch, fr.message)
+                        (branch, fr.message)
                     }
-                    Err(ref e) => (name, pre_branch, format!("ERROR: {e}")),
-                }
-            })
-            .collect();
+                    Err(ref e) => (pre_branch, format!("ERROR: {e}")),
+                };
 
-        let branch_width = compute_branch_width(&formatted);
-
-        for (name, branch, message) in &formatted {
-            println!(
-                "{} | {} | {}",
-                format_column(name, name_width),
-                format_column(branch, branch_width),
-                message
-            );
+                println!(
+                    "{} | {} | {}",
+                    format_column(&name, name_width),
+                    format_column(&branch, branch_width),
+                    message
+                );
+                next_to_print += 1;
+            }
         }
     });
 
@@ -422,26 +406,28 @@ where
 
         let mut results: Vec<Option<(PathBuf, Result<Output, std::io::Error>)>> =
             (0..repos.len()).map(|_| None).collect();
+        let mut next_to_print = 0;
 
         for (idx, repo, result) in rx {
             results[idx] = Some((repo, result));
-        }
 
-        for item in results {
-            let (repo, result) = item.unwrap();
-            match result {
-                Ok(output) => {
-                    let _ = std::io::stdout().write_all(&output.stdout);
-                    let _ = std::io::stderr().write_all(&output.stderr);
+            while next_to_print < results.len() && results[next_to_print].is_some() {
+                let (repo, result) = results[next_to_print].take().unwrap();
+                match result {
+                    Ok(output) => {
+                        let _ = std::io::stdout().write_all(&output.stdout);
+                        let _ = std::io::stderr().write_all(&output.stderr);
+                    }
+                    Err(err) => {
+                        let _ = writeln!(
+                            std::io::stderr(),
+                            "git-all: failed to run git in {}: {}",
+                            repo_display_name(&repo, ctx.display_root()),
+                            err
+                        );
+                    }
                 }
-                Err(err) => {
-                    let _ = writeln!(
-                        std::io::stderr(),
-                        "git-all: failed to run git in {}: {}",
-                        repo_display_name(&repo, ctx.display_root()),
-                        err
-                    );
-                }
+                next_to_print += 1;
             }
         }
     });
