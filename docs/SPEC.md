@@ -1,6 +1,6 @@
 # git-all Specification
 
-Version: 0.2.2
+Version: 0.2.3
 Status: Draft
 
 ## Abstract
@@ -98,6 +98,8 @@ If `git-all meta` is not found, the implementation MUST continue with the next o
 
 4. Output MUST be printed in a deterministic order (repository discovery order), regardless of process completion order.
 
+5. Output SHOULD stream progressively as results become available, using head-of-line blocking: when a result arrives, all contiguous results from the front of the queue SHOULD be printed immediately rather than waiting for all results to complete.
+
 ### 3.3 Error Handling
 
 1. If any repository command fails, the implementation MUST continue processing remaining repositories.
@@ -119,7 +121,7 @@ If `git-all meta` is not found, the implementation MUST continue with the next o
 
 3. The output format MUST use three pipe-delimited columns: `<repo> | <branch> | <message>`. See Section 7.1 for full formatting rules.
 
-4. Column widths SHOULD be computed from the actual values and consistent across all rows. See Section 7.1 for width and truncation rules.
+4. Column widths MUST be consistent across all rows. See Section 7.1 for width and truncation rules.
 
 ### 4.2 status Command
 
@@ -234,8 +236,9 @@ infra-services-dock... | develop          | clean, 1 ahead
 Column rules:
 
 1. Each column MUST be left-aligned and padded to a consistent width across all rows.
-2. Column widths SHOULD be computed from the actual values in the current run, not a fixed size.
-3. Repo and branch columns SHOULD have a maximum width cap to prevent overly wide output. Values exceeding the cap SHOULD be truncated with a trailing ellipsis (e.g. `...`).
+2. The repo name column width SHOULD be computed from the actual values in the current run.
+3. The branch column MUST use a fixed width of 14 characters. This enables streaming output without waiting for all results.
+4. Repo and branch columns MUST have a maximum width cap to prevent overly wide output. Values exceeding the cap MUST be truncated with a trailing ellipsis (e.g. `...`).
 4. When scan depth is greater than 1, the repo column MUST display paths relative to the current directory rather than just the leaf directory name.
 5. When scan depth is the default (1), implementations MAY display paths instead of just the leaf name.
 6. Detached HEAD state MUST be displayed as `HEAD (detached)` in the branch column.
@@ -346,6 +349,11 @@ ARGS:
 * [Git Documentation](https://git-scm.com/docs)
 
 ## Appendix C: Changelog
+
+### v0.2.3 (2026-02-11)
+
+* Changed branch column to fixed width of 14 characters (Section 7.1.1)
+* Added streaming output via head-of-line blocking as RECOMMENDED behavior (Section 3.2)
 
 ### v0.2.2 (2026-02-10)
 
