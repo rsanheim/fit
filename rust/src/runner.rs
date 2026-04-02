@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Instant;
 
 use crate::repo::repo_display_name;
+use crate::trace::{RepoTraceSample, TraceConfig};
 
 /// Simple counting semaphore using stdlib primitives.
 /// Allows limiting concurrent operations to N at a time.
@@ -82,6 +84,7 @@ pub struct ExecutionContext {
     url_scheme: Option<UrlScheme>,
     max_connections: usize,
     display_root: PathBuf,
+    trace: TraceConfig,
 }
 
 impl ExecutionContext {
@@ -90,12 +93,14 @@ impl ExecutionContext {
         url_scheme: Option<UrlScheme>,
         max_connections: usize,
         display_root: PathBuf,
+        trace: TraceConfig,
     ) -> Self {
         Self {
             dry_run,
             url_scheme,
             max_connections,
             display_root,
+            trace,
         }
     }
 
@@ -113,6 +118,10 @@ impl ExecutionContext {
 
     pub fn display_root(&self) -> &std::path::Path {
         &self.display_root
+    }
+
+    pub fn trace(&self) -> TraceConfig {
+        self.trace
     }
 }
 
@@ -195,6 +204,7 @@ where
     F: Fn(&PathBuf) -> GitCommand + Sync,
 {
     let url_scheme = ctx.url_scheme();
+    let trace = ctx.trace();
 
     if ctx.is_dry_run() {
         for repo in repos {
@@ -205,6 +215,7 @@ where
     }
 
     let name_width = compute_name_width(repos, ctx.display_root());
+    let run_started_at = Instant::now();
 
     let max_workers = ctx.max_connections();
 
@@ -214,9 +225,13 @@ where
         None
     };
 
-    let mut results: Vec<Option<(PathBuf, Result<Output, std::io::Error>)>> =
+    let mut results: Vec<Option<(PathBuf, Result<Output, std::io::Error>, RepoTraceSample)>> =
         (0..repos.len()).map(|_| None).collect();
     let mut next_to_print: usize = 0;
+    let mut first_exit_ms: Option<u128> = None;
+    let mut first_print_ms: Option<u128> = None;
+    let mut delayed_repos: usize = 0;
+    let mut max_ordered_wait_ms: u128 = 0;
 
     let (tx, rx) = mpsc::channel();
 
@@ -232,29 +247,70 @@ where
                     sem.acquire();
                 }
 
-                let result = cmd.spawn(url_scheme).and_then(|c| c.wait_with_output());
+                let start_ms = run_started_at.elapsed().as_millis();
+                let spawn_result = cmd.spawn(url_scheme);
+                let spawn_ms = spawn_result
+                    .as_ref()
+                    .ok()
+                    .map(|_| run_started_at.elapsed().as_millis());
+                let result = match spawn_result {
+                    Ok(child) => child.wait_with_output(),
+                    Err(err) => Err(err),
+                };
+                let exit_ms = run_started_at.elapsed().as_millis();
+                let trace_sample = match &result {
+                    Ok(output) => RepoTraceSample {
+                        start_ms,
+                        spawn_ms,
+                        exit_ms,
+                        stdout_bytes: output.stdout.len(),
+                        stderr_bytes: output.stderr.len(),
+                        success: output.status.success(),
+                    },
+                    Err(_) => RepoTraceSample {
+                        start_ms,
+                        spawn_ms,
+                        exit_ms,
+                        stdout_bytes: 0,
+                        stderr_bytes: 0,
+                        success: false,
+                    },
+                };
 
                 if let Some(ref sem) = sem {
                     sem.release();
                 }
 
-                let _ = tx.send((idx, repo, result));
+                let _ = tx.send((idx, repo, result, trace_sample));
             });
         }
         drop(tx);
 
-        for (idx, repo, result) in rx {
-            results[idx] = Some((repo, result));
+        for (idx, repo, result, trace_sample) in rx {
+            results[idx] = Some((repo, result, trace_sample));
 
             while next_to_print < results.len() {
-                if let Some((ref repo_path, ref res)) = results[next_to_print] {
-                    print_result(
-                        repo_path,
-                        res,
-                        formatter,
-                        ctx.display_root(),
-                        name_width,
-                    );
+                if let Some((ref repo_path, ref res, ref sample)) = results[next_to_print] {
+                    print_result(repo_path, res, formatter, ctx.display_root(), name_width);
+
+                    if trace.enabled() {
+                        let printed_ms = run_started_at.elapsed().as_millis();
+                        let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
+                        let repo_name = repo_display_name(repo_path, ctx.display_root());
+                        first_exit_ms = Some(
+                            first_exit_ms
+                                .map_or(sample.exit_ms, |current| current.min(sample.exit_ms)),
+                        );
+                        first_print_ms = Some(
+                            first_print_ms.map_or(printed_ms, |current| current.min(printed_ms)),
+                        );
+                        if ordered_wait_ms > 0 {
+                            delayed_repos += 1;
+                        }
+                        max_ordered_wait_ms = max_ordered_wait_ms.max(ordered_wait_ms);
+                        trace.emit_repo(next_to_print, &repo_name, *sample, printed_ms);
+                    }
+
                     next_to_print += 1;
                 } else {
                     break;
@@ -262,6 +318,15 @@ where
             }
         }
     });
+
+    trace.emit_summary(
+        repos.len(),
+        first_exit_ms,
+        first_print_ms,
+        delayed_repos,
+        max_ordered_wait_ms,
+        run_started_at.elapsed().as_millis(),
+    );
 
     Ok(())
 }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::process::Command;
+use std::time::Instant;
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -9,13 +10,19 @@ mod commands;
 mod meta;
 mod repo;
 mod runner;
+mod trace;
 
 use commands::{fetch, passthrough, pull, status};
-use repo::{find_git_repos_in, is_inside_git_repo, parse_scan_depth, ScanDepth};
+use repo::{ScanDepth, find_git_repos_in, is_inside_git_repo, parse_scan_depth};
 use runner::{ExecutionContext, UrlScheme};
+use trace::TraceConfig;
 
 #[derive(Parser)]
-#[command(name = "git-all", version, about = "parallel git across many repositories")]
+#[command(
+    name = "git-all",
+    version,
+    about = "parallel git across many repositories"
+)]
 struct Cli {
     /// Print exact commands without executing
     #[arg(long)]
@@ -72,6 +79,20 @@ enum Commands {
     External(Vec<String>),
 }
 
+fn command_label(command: &Option<Commands>) -> String {
+    match command {
+        Some(Commands::Pull { .. }) => "pull".to_string(),
+        Some(Commands::Fetch { .. }) => "fetch".to_string(),
+        Some(Commands::Status { .. }) => "status".to_string(),
+        Some(Commands::Meta { .. }) => "meta".to_string(),
+        Some(Commands::External(args)) => args
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "external".to_string()),
+        None => "none".to_string(),
+    }
+}
+
 /// Exec git with all original args, replacing the git-all process.
 /// This is used when git-all is invoked from inside a git repository.
 #[cfg(unix)]
@@ -96,6 +117,7 @@ fn passthrough_to_git() -> ! {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let is_meta = args.first().map(|s| s == "meta").unwrap_or(false);
+    let trace = TraceConfig::from_env();
 
     if !is_meta && is_inside_git_repo() {
         passthrough_to_git();
@@ -109,7 +131,15 @@ fn main() -> Result<()> {
     }
 
     let cwd = std::env::current_dir()?;
+    let scan_started_at = Instant::now();
     let repos = find_git_repos_in(&cwd, cli.scan_depth)?;
+    trace.emit_scan(
+        &command_label(&cli.command),
+        &cwd,
+        repos.len(),
+        cli.workers,
+        scan_started_at.elapsed().as_millis(),
+    );
     if repos.is_empty() {
         println!("No git repositories found in current directory");
         return Ok(());
@@ -123,7 +153,7 @@ fn main() -> Result<()> {
         None
     };
 
-    let ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers, cwd);
+    let ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers, cwd, trace);
 
     if cli.dry_run {
         println!(
