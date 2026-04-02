@@ -3,7 +3,44 @@ use std::process::Command;
 
 #[cfg(unix)]
 #[test]
-fn trace_reports_ordered_wait_for_blocked_repos() {
+fn completion_order_output_uses_stable_repo_ids() {
+    let temp = tempfile::tempdir().expect("temp dir");
+
+    create_delay_repos(temp.path());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-all"))
+        .args(["-n", "3", "delay"])
+        .current_dir(temp.path())
+        .output()
+        .expect("git-all should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    assert_eq!(
+        lines.len(),
+        3,
+        "expected one output line per repo: {stdout}"
+    );
+    assert!(
+        lines[0].starts_with("[002 "),
+        "expected repo b to print first with stable id 002: {stdout}"
+    );
+    assert!(
+        lines[1].starts_with("[003 "),
+        "expected repo c to print second with stable id 003: {stdout}"
+    );
+    assert!(
+        lines[2].starts_with("[001 "),
+        "expected repo a to print last with stable id 001: {stdout}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn trace_reports_low_ordered_wait_for_completion_order_output() {
     let temp = tempfile::tempdir().expect("temp dir");
 
     create_delay_repos(temp.path());
@@ -42,14 +79,23 @@ fn trace_reports_ordered_wait_for_blocked_repos() {
         "expected summary trace output: {stderr}"
     );
 
-    let ordered_waits: Vec<u128> = stderr
+    let summary = stderr
         .lines()
-        .filter(|line| line.contains("git-all-trace phase=repo"))
-        .filter_map(parse_ordered_wait_ms)
-        .collect();
+        .find(|line| line.contains("git-all-trace phase=summary"))
+        .expect("expected summary trace line");
+
+    let first_print_ms =
+        parse_trace_u128_field(summary, "first_print_ms").expect("first_print_ms in summary");
+    let max_ordered_wait_ms = parse_trace_u128_field(summary, "max_ordered_wait_ms")
+        .expect("max_ordered_wait_ms in summary");
+
     assert!(
-        ordered_waits.iter().any(|wait_ms| *wait_ms >= 500),
-        "expected at least one repo to wait behind ordered output: {stderr}"
+        first_print_ms < 500,
+        "expected completion-order output to print before slow repo a finishes: {stderr}"
+    );
+    assert!(
+        max_ordered_wait_ms < 200,
+        "expected ordered wait to stay low with completion-order output: {stderr}"
     );
 }
 
@@ -98,7 +144,7 @@ fn create_delay_repos(root: &std::path::Path) {
             .expect("git init should run");
         assert!(init_status.success());
 
-        let alias = r#"!name=$(basename "$PWD"); case "$name" in a) sleep 1 ;; *) : ;; esac; echo "$name done""#;
+        let alias = r#"!name=$(basename "$PWD"); case "$name" in a) sleep 1 ;; c) sleep 0.2 ;; *) : ;; esac; echo "$name done""#;
         let config_status = Command::new("git")
             .arg("-C")
             .arg(&repo_path)
@@ -110,10 +156,10 @@ fn create_delay_repos(root: &std::path::Path) {
 }
 
 #[cfg(unix)]
-fn parse_ordered_wait_ms(line: &str) -> Option<u128> {
+fn parse_trace_u128_field(line: &str, field_name: &str) -> Option<u128> {
     line.split_whitespace().find_map(|field| {
         field
-            .strip_prefix("ordered_wait_ms=")
+            .strip_prefix(&format!("{field_name}="))
             .and_then(|value| value.parse().ok())
     })
 }
