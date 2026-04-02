@@ -6,7 +6,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
 use crate::repo::repo_display_name;
-use crate::trace::{RepoTraceSample, TraceConfig};
+use crate::trace::{RepoTraceSample, TraceSink};
 
 /// Simple counting semaphore using stdlib primitives.
 /// Allows limiting concurrent operations to N at a time.
@@ -84,7 +84,7 @@ pub struct ExecutionContext {
     url_scheme: Option<UrlScheme>,
     max_connections: usize,
     display_root: PathBuf,
-    trace: TraceConfig,
+    trace: TraceSink,
 }
 
 impl ExecutionContext {
@@ -93,7 +93,7 @@ impl ExecutionContext {
         url_scheme: Option<UrlScheme>,
         max_connections: usize,
         display_root: PathBuf,
-        trace: TraceConfig,
+        trace: TraceSink,
     ) -> Self {
         Self {
             dry_run,
@@ -120,8 +120,12 @@ impl ExecutionContext {
         &self.display_root
     }
 
-    pub fn trace(&self) -> &TraceConfig {
-        &self.trace
+    pub fn trace_enabled(&self) -> bool {
+        self.trace.enabled()
+    }
+
+    pub fn trace_mut(&mut self) -> &mut TraceSink {
+        &mut self.trace
     }
 }
 
@@ -195,7 +199,7 @@ pub trait OutputFormatter: Sync {
 /// Uses thread-per-process pattern with `wait_with_output()` which is deadlock-safe
 /// (stdlib internally spawns threads to drain stdout/stderr concurrently).
 pub fn run_parallel<F>(
-    ctx: &ExecutionContext,
+    ctx: &mut ExecutionContext,
     repos: &[PathBuf],
     build_command: F,
     formatter: &dyn OutputFormatter,
@@ -204,7 +208,7 @@ where
     F: Fn(&PathBuf) -> GitCommand + Sync,
 {
     let url_scheme = ctx.url_scheme();
-    let trace = ctx.trace();
+    let trace_enabled = ctx.trace_enabled();
 
     if ctx.is_dry_run() {
         for repo in repos {
@@ -225,8 +229,13 @@ where
         None
     };
 
-    let mut results: Vec<Option<(PathBuf, Result<Output, std::io::Error>, RepoTraceSample)>> =
-        (0..repos.len()).map(|_| None).collect();
+    let mut results: Vec<
+        Option<(
+            PathBuf,
+            Result<Output, std::io::Error>,
+            Option<RepoTraceSample>,
+        )>,
+    > = (0..repos.len()).map(|_| None).collect();
     let mut next_to_print: usize = 0;
     let mut first_exit_ms: Option<u128> = None;
     let mut first_print_ms: Option<u128> = None;
@@ -235,7 +244,7 @@ where
 
     let (tx, rx) = mpsc::channel();
 
-    std::thread::scope(|s| {
+    std::thread::scope(|s| -> Result<()> {
         for (idx, repo) in repos.iter().enumerate() {
             let tx = tx.clone();
             let cmd = build_command(repo);
@@ -247,34 +256,43 @@ where
                     sem.acquire();
                 }
 
-                let start_ms = run_started_at.elapsed().as_millis();
+                let start_ms = if trace_enabled {
+                    Some(run_started_at.elapsed().as_millis())
+                } else {
+                    None
+                };
                 let spawn_result = cmd.spawn(url_scheme);
-                let spawn_ms = spawn_result
-                    .as_ref()
-                    .ok()
-                    .map(|_| run_started_at.elapsed().as_millis());
+                let spawn_ms = if trace_enabled {
+                    Some(run_started_at.elapsed().as_millis())
+                } else {
+                    None
+                };
                 let result = match spawn_result {
                     Ok(child) => child.wait_with_output(),
                     Err(err) => Err(err),
                 };
-                let exit_ms = run_started_at.elapsed().as_millis();
-                let trace_sample = match &result {
-                    Ok(output) => RepoTraceSample {
-                        start_ms,
-                        spawn_ms,
-                        exit_ms,
-                        stdout_bytes: output.stdout.len(),
-                        stderr_bytes: output.stderr.len(),
-                        success: output.status.success(),
-                    },
-                    Err(_) => RepoTraceSample {
-                        start_ms,
-                        spawn_ms,
-                        exit_ms,
-                        stdout_bytes: 0,
-                        stderr_bytes: 0,
-                        success: false,
-                    },
+                let trace_sample = if trace_enabled {
+                    let exit_ms = run_started_at.elapsed().as_millis();
+                    Some(match &result {
+                        Ok(output) => RepoTraceSample {
+                            start_ms: start_ms.expect("trace enabled start_ms"),
+                            spawn_ms: spawn_ms.expect("trace enabled spawn_ms"),
+                            exit_ms,
+                            stdout_bytes: output.stdout.len(),
+                            stderr_bytes: output.stderr.len(),
+                            success: output.status.success(),
+                        },
+                        Err(_) => RepoTraceSample {
+                            start_ms: start_ms.expect("trace enabled start_ms"),
+                            spawn_ms: spawn_ms.expect("trace enabled spawn_ms"),
+                            exit_ms,
+                            stdout_bytes: 0,
+                            stderr_bytes: 0,
+                            success: false,
+                        },
+                    })
+                } else {
+                    None
                 };
 
                 if let Some(ref sem) = sem {
@@ -293,7 +311,7 @@ where
                 if let Some((ref repo_path, ref res, ref sample)) = results[next_to_print] {
                     print_result(repo_path, res, formatter, ctx.display_root(), name_width);
 
-                    if trace.enabled() {
+                    if let Some(sample) = sample {
                         let printed_ms = run_started_at.elapsed().as_millis();
                         let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
                         let repo_name = repo_display_name(repo_path, ctx.display_root());
@@ -308,7 +326,12 @@ where
                             delayed_repos += 1;
                         }
                         max_ordered_wait_ms = max_ordered_wait_ms.max(ordered_wait_ms);
-                        trace.emit_repo(next_to_print, &repo_name, *sample, printed_ms);
+                        ctx.trace_mut().emit_repo(
+                            next_to_print,
+                            &repo_name,
+                            *sample,
+                            printed_ms,
+                        )?;
                     }
 
                     next_to_print += 1;
@@ -317,16 +340,17 @@ where
                 }
             }
         }
-    });
+        Ok(())
+    })?;
 
-    trace.emit_summary(
+    ctx.trace_mut().emit_summary(
         repos.len(),
         first_exit_ms,
         first_print_ms,
         delayed_repos,
         max_ordered_wait_ms,
         run_started_at.elapsed().as_millis(),
-    );
+    )?;
 
     Ok(())
 }

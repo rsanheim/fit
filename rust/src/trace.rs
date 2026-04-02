@@ -1,23 +1,17 @@
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 
-#[derive(Clone, Default)]
-pub struct TraceConfig {
-    destination: Option<TraceDestination>,
-}
-
-#[derive(Clone)]
-enum TraceDestination {
+pub enum TraceSink {
+    Disabled,
     Stderr,
-    File(Arc<Mutex<BufWriter<File>>>),
+    File(BufWriter<File>),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RepoTraceSample {
     pub start_ms: u128,
-    pub spawn_ms: Option<u128>,
+    pub spawn_ms: u128,
     pub exit_ms: u128,
     pub stdout_bytes: usize,
     pub stderr_bytes: usize,
@@ -30,12 +24,11 @@ impl RepoTraceSample {
     }
 
     pub fn run_ms(self) -> u128 {
-        self.exit_ms
-            .saturating_sub(self.spawn_ms.unwrap_or(self.start_ms))
+        self.exit_ms.saturating_sub(self.spawn_ms)
     }
 }
 
-impl TraceConfig {
+impl TraceSink {
     pub fn from_env() -> io::Result<Self> {
         let trace_path = std::env::var_os("GIT_ALL_TRACE_FILE")
             .map(PathBuf::from)
@@ -46,44 +39,40 @@ impl TraceConfig {
             || trace_path.is_some();
 
         if !enabled {
-            return Ok(Self::default());
+            return Ok(Self::Disabled);
         }
 
-        let destination = match trace_path {
-            Some(path) => Some(TraceDestination::File(Arc::new(Mutex::new(
-                BufWriter::new(File::create(path)?),
-            )))),
-            None => Some(TraceDestination::Stderr),
-        };
-
-        Ok(Self { destination })
+        match trace_path {
+            Some(path) => Ok(Self::File(BufWriter::new(File::create(path)?))),
+            None => Ok(Self::Stderr),
+        }
     }
 
     pub fn enabled(&self) -> bool {
-        self.destination.is_some()
+        !matches!(self, Self::Disabled)
     }
 
     pub fn emit_scan(
-        &self,
+        &mut self,
         command: &str,
-        root: &Path,
+        root: &std::path::Path,
         repo_count: usize,
         workers: usize,
         scan_ms: u128,
-    ) {
+    ) -> io::Result<()> {
         self.write_line(&format!(
             "git-all-trace phase=scan command={command:?} root={:?} repos={repo_count} workers={workers} scan_ms={scan_ms}",
             root.to_string_lossy()
-        ));
+        ))
     }
 
     pub fn emit_repo(
-        &self,
+        &mut self,
         idx: usize,
         repo_name: &str,
         sample: RepoTraceSample,
         printed_ms: u128,
-    ) {
+    ) -> io::Result<()> {
         self.write_line(&format!(
             concat!(
                 "git-all-trace phase=repo idx={idx} repo={repo_name:?} ",
@@ -94,7 +83,7 @@ impl TraceConfig {
             idx = idx,
             repo_name = repo_name,
             start_ms = sample.start_ms,
-            spawn_ms = sample.spawn_ms.unwrap_or(sample.start_ms),
+            spawn_ms = sample.spawn_ms,
             exit_ms = sample.exit_ms,
             printed_ms = printed_ms,
             run_ms = sample.run_ms(),
@@ -102,18 +91,18 @@ impl TraceConfig {
             stdout_bytes = sample.stdout_bytes,
             stderr_bytes = sample.stderr_bytes,
             success = sample.success,
-        ));
+        ))
     }
 
     pub fn emit_summary(
-        &self,
+        &mut self,
         repo_count: usize,
         first_exit_ms: Option<u128>,
         first_print_ms: Option<u128>,
         delayed_repos: usize,
         max_ordered_wait_ms: u128,
         total_ms: u128,
-    ) {
+    ) -> io::Result<()> {
         self.write_line(&format!(
             concat!(
                 "git-all-trace phase=summary repos={repo_count} ",
@@ -130,18 +119,17 @@ impl TraceConfig {
             delayed_repos = delayed_repos,
             max_ordered_wait_ms = max_ordered_wait_ms,
             total_ms = total_ms,
-        ));
+        ))
     }
 
-    fn write_line(&self, line: &str) {
-        match &self.destination {
-            None => {}
-            Some(TraceDestination::Stderr) => eprintln!("{line}"),
-            Some(TraceDestination::File(writer)) => {
-                if let Ok(mut writer) = writer.lock() {
-                    let _ = writeln!(writer, "{line}");
-                }
+    fn write_line(&mut self, line: &str) -> io::Result<()> {
+        match self {
+            Self::Disabled => Ok(()),
+            Self::Stderr => {
+                let mut stderr = io::stderr().lock();
+                writeln!(stderr, "{line}")
             }
+            Self::File(writer) => writeln!(writer, "{line}"),
         }
     }
 }

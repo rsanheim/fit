@@ -15,7 +15,7 @@ mod trace;
 use commands::{fetch, passthrough, pull, status};
 use repo::{ScanDepth, find_git_repos_in, is_inside_git_repo, parse_scan_depth};
 use runner::{ExecutionContext, UrlScheme};
-use trace::TraceConfig;
+use trace::TraceSink;
 
 #[derive(Parser)]
 #[command(
@@ -117,11 +117,12 @@ fn passthrough_to_git() -> ! {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let is_meta = args.first().map(|s| s == "meta").unwrap_or(false);
-    let trace = TraceConfig::from_env()?;
 
     if !is_meta && is_inside_git_repo() {
         passthrough_to_git();
     }
+
+    let mut trace = TraceSink::from_env()?;
 
     let cli = Cli::parse();
 
@@ -139,7 +140,7 @@ fn main() -> Result<()> {
         repos.len(),
         cli.workers,
         scan_started_at.elapsed().as_millis(),
-    );
+    )?;
     if repos.is_empty() {
         println!("No git repositories found in current directory");
         return Ok(());
@@ -153,7 +154,7 @@ fn main() -> Result<()> {
         None
     };
 
-    let ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers, cwd, trace);
+    let mut ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers, cwd, trace);
 
     if cli.dry_run {
         println!(
@@ -163,10 +164,10 @@ fn main() -> Result<()> {
     }
 
     match cli.command {
-        Some(Commands::Pull { args }) => pull::run(&ctx, &repos, &args),
-        Some(Commands::Fetch { args }) => fetch::run(&ctx, &repos, &args),
-        Some(Commands::Status { args }) => status::run(&ctx, &repos, &args),
-        Some(Commands::External(args)) => passthrough::run(&ctx, &repos, &args),
+        Some(Commands::Pull { args }) => pull::run(&mut ctx, &repos, &args),
+        Some(Commands::Fetch { args }) => fetch::run(&mut ctx, &repos, &args),
+        Some(Commands::Status { args }) => status::run(&mut ctx, &repos, &args),
+        Some(Commands::External(args)) => passthrough::run(&mut ctx, &repos, &args),
         Some(Commands::Meta { .. }) => unreachable!(), // handled above
         None => {
             // No command given - show help
