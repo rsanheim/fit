@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft.
+Tracing implemented in Rust. Output experiments pending.
 
 ## Summary
 
@@ -221,46 +221,77 @@ Cons:
 - still requires placeholders or updates
 - less predictable than the other models
 
-## Tracing We Should Add First
+## Tracing Implemented
 
-Before changing transport or doing invasive refactors, add lightweight timing traces so we can distinguish:
+The Rust implementation now has a small-scope timing trace path intended specifically for output and scheduling experiments.
 
-- repo discovery time
-- queue wait time
-- process spawn time
-- git execution time
-- time spent waiting to print because of ordering
+Current interfaces:
 
-Suggested per-repo fields:
+- `GIT_ALL_TRACE=1`
+  Writes trace lines to `stderr`
+- `GIT_ALL_TRACE_FILE=/path/to/trace.log`
+  Writes trace lines to a file and implicitly enables tracing
+
+Current per-repo fields:
 
 - `repo`
-- `index`
-- `queued_at`
-- `spawned_at`
-- `exited_at`
-- `printed_at`
+- `idx`
+- `start_ms`
+- `spawn_ms`
+- `exit_ms`
+- `printed_ms`
 - `run_ms`
 - `ordered_wait_ms`
 - `stdout_bytes`
 - `stderr_bytes`
-- `exit_code`
+- `success`
 
-Suggested global fields:
+Current summary fields:
 
-- `scan_ms`
-- `first_spawn_ms`
+- `repos`
 - `first_exit_ms`
 - `first_print_ms`
-- p50/p95 `run_ms`
-- p50/p95 `ordered_wait_ms`
+- `delayed_repos`
+- `max_ordered_wait_ms`
+- `total_ms`
 
-Interface options:
+There is also a scan line with:
 
-- `GIT_ALL_TRACE=1`
-- `--trace-json`
-- `--trace-file <path>`
+- `command`
+- `root`
+- `repos`
+- `workers`
+- `scan_ms`
 
-The most important signal is `ordered_wait_ms`. If that is large, the runner is causing the visible delay even when git itself is not slow.
+The most important signal remains `ordered_wait_ms`. If that is large, the runner is causing visible delay even when git itself is not slow.
+
+### Representative Result
+
+On April 2, 2026, a representative traced `status` run on `~/work` with 98 repos and `-n 8` showed:
+
+- `scan_ms=5`
+- `first_exit_ms=121`
+- `first_print_ms=534`
+- `delayed_repos=93`
+- `max_ordered_wait_ms=1418`
+- `total_ms=2690`
+
+That confirms the main UX problem is real head-of-line blocking in the runner, not just slow git subprocesses.
+
+### Overhead Check
+
+A quick `hyperfine` check on the same `~/work` workload showed trace-to-file overhead within noise:
+
+- no trace: about `2.65s`
+- `GIT_ALL_TRACE_FILE=/tmp/...`: about `2.64s`
+
+That is good enough for spike comparisons and benchmark capture.
+
+### Notes
+
+- Trace initialization now happens after passthrough detection, so invoking `git-all` inside a repo does not create or truncate trace files.
+- Trace writes now propagate I/O errors instead of silently ignoring them.
+- Per-repo timing samples are only collected when tracing is enabled.
 
 ## Transport: SSH vs HTTPS
 
@@ -282,7 +313,7 @@ If tracing shows that `git pull` time is dominated by transport setup, test thes
 
 Recommended default behavior:
 
-1. Add tracing first.
+1. Keep the current tracing path and use it for every spike.
 2. Use a single printer thread with event messages from workers.
 3. For TTY output, use reserved sorted rows with in-place updates.
 4. For non-TTY output, use completion-order live lines with stable repo IDs and an optional final sorted summary.
@@ -310,10 +341,12 @@ Non-TTY printer:
 
 Trace support:
 
-- timestamp state transitions in the runner
-- write JSON lines or a summary report
+- already implemented with `GIT_ALL_TRACE` and `GIT_ALL_TRACE_FILE`
+- use the current text format during spike work
+- only add richer export formats if the current trace becomes a bottleneck
 
 ## Related Docs
 
 - [`docs/dev/issue-crossterm-streaming.md`](../dev/issue-crossterm-streaming.md)
 - [`docs/SPEC.md`](../SPEC.md)
+- [`docs/plans/output-spikes.md`](./output-spikes.md)
