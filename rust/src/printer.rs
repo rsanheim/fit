@@ -29,7 +29,9 @@ fn truncate_name(name: &str, width: usize) -> String {
         if width <= 4 {
             name.chars().take(width).collect()
         } else {
-            format!("{}-...", &name[..width - 4])
+            let prefix_len = width - 4;
+            let safe_end = name.floor_char_boundary(prefix_len);
+            format!("{}-...", &name[..safe_end])
         }
     } else {
         name.to_string()
@@ -84,9 +86,8 @@ impl<W: Write> TtyPrinter<W> {
 
     pub fn print_result(&mut self, row: &RepoRow, status: &str) {
         self.completed += 1;
-        if self.running > 0 {
-            self.running -= 1;
-        }
+        debug_assert!(self.running > 0, "print_result called without preceding mark_started");
+        self.running = self.running.saturating_sub(1);
 
         self.clear_footer();
 

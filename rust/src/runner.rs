@@ -46,9 +46,10 @@ impl Semaphore {
 
 const MIN_REPO_NAME_WIDTH: usize = 4;
 const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
+const MIN_ID_WIDTH: usize = 3;
 
 fn compute_repo_id_width(repo_count: usize) -> usize {
-    repo_count.max(1).to_string().len().max(3)
+    repo_count.max(1).to_string().len().max(MIN_ID_WIDTH)
 }
 
 /// URL scheme to force for git operations
@@ -211,6 +212,15 @@ pub trait OutputFormatter: Sync {
     fn format(&self, output: &Output) -> String;
 }
 
+enum RepoEvent {
+    Started { _idx: usize },
+    Completed {
+        idx: usize,
+        result: Result<Output, std::io::Error>,
+        trace: Option<RepoTraceSample>,
+    },
+}
+
 /// Run commands in parallel across all repos with streaming output.
 ///
 /// Repos are discovered and sorted deterministically up front. Results are then
@@ -266,7 +276,6 @@ where
         for (idx, repo) in repos.iter().enumerate() {
             let tx = tx.clone();
             let cmd = build_command(repo);
-            let repo = repo.clone();
             let sem = semaphore.clone();
 
             s.spawn(move || {
@@ -274,7 +283,7 @@ where
                     sem.acquire();
                 }
 
-                let _ = tx.send((idx, repo.clone(), None, None)); // signal started
+                let _ = tx.send(RepoEvent::Started { _idx: idx });
 
                 let start_ms = if trace_enabled {
                     Some(run_started_at.elapsed().as_millis())
@@ -319,7 +328,11 @@ where
                     sem.release();
                 }
 
-                let _ = tx.send((idx, repo, Some(result), trace_sample));
+                let _ = tx.send(RepoEvent::Completed {
+                    idx,
+                    result,
+                    trace: trace_sample,
+                });
             });
         }
         drop(tx);
@@ -328,16 +341,16 @@ where
             let mut writer = stdout.lock();
             let mut printer = TtyPrinter::new(&mut writer, repos.len(), run_started_at);
 
-            for (idx, _repo, result, trace_sample) in &rx {
-                match result {
-                    None => {
+            for event in &rx {
+                match event {
+                    RepoEvent::Started { .. } => {
                         printer.mark_started();
                     }
-                    Some(ref res) => {
-                        let status_text = format_status(res, formatter);
+                    RepoEvent::Completed { idx, ref result, trace } => {
+                        let status_text = format_status(result, formatter);
                         printer.print_result(&rows[idx], &status_text);
 
-                        if let Some(sample) = trace_sample {
+                        if let Some(sample) = trace {
                             emit_trace(
                                 ctx,
                                 idx,
@@ -358,26 +371,24 @@ where
             let mut writer = stdout.lock();
             let mut printer = StreamPrinter::new(&mut writer);
 
-            for (idx, _repo, result, trace_sample) in &rx {
-                if result.is_none() {
-                    continue; // skip "started" signals in non-TTY mode
-                }
-                let res = result.as_ref().unwrap();
-                let status_text = format_status(res, formatter);
-                printer.print_result(&rows[idx], &status_text);
+            for event in &rx {
+                if let RepoEvent::Completed { idx, ref result, trace } = event {
+                    let status_text = format_status(result, formatter);
+                    printer.print_result(&rows[idx], &status_text);
 
-                if let Some(sample) = trace_sample {
-                    emit_trace(
-                        ctx,
-                        idx,
-                        &rows[idx].name,
-                        sample,
-                        run_started_at,
-                        &mut first_exit_ms,
-                        &mut first_print_ms,
-                        &mut delayed_repos,
-                        &mut max_ordered_wait_ms,
-                    )?;
+                    if let Some(sample) = trace {
+                        emit_trace(
+                            ctx,
+                            idx,
+                            &rows[idx].name,
+                            sample,
+                            run_started_at,
+                            &mut first_exit_ms,
+                            &mut first_print_ms,
+                            &mut delayed_repos,
+                            &mut max_ordered_wait_ms,
+                        )?;
+                    }
                 }
             }
             printer.finish();
