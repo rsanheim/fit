@@ -18,9 +18,12 @@ Use this doc as the shared tracker until one spike wins.
 | Spike 1 | `spike/completion-order-output` | `0c6137c` | completion-order live lines with stable repo IDs | measured | `139` | `28` | `20` | `2639` | commit `f035766`, same `~/work` trace setup as baseline |
 | Spike 3 | `spike/bounded-worker-queue` | `0c6137c` | ordered append-only | measured | `666` | `92` | `1239` | `2802` | trace on 2026-04-02; `script/bench git` showed baseline `1.04 ± 0.04x` faster, so this workload regressed slightly |
 | Spike 2 | `spike/tty-row-updates` | `f035766` | reserved sorted TTY rows, completion-order non-TTY fallback | measured | `165` | `14` | `2` | `2525` | commit `91b213a`; `script/bench git` showed `f035766 1.02 ± 0.03x` faster; non-TTY stdout stayed plain text without ANSI escapes |
+| Spike 4 | `spike-crossterm-smart-tty` | `0c6137c` | completion-order with crossterm sticky footer (TTY), plain lines (non-TTY) | measured | `100` | `29` | `12` | `3226` | commit `53c5b4f`; `script/bench git` showed baseline `1.01 ± 0.03x` faster; no ANSI escapes in redirected output |
 
 ## Plan Links
 
+- [Spike 4 Design](./spike-crossterm-smart-tty-design.md)
+- [Spike 4 Implementation Plan](./spike-crossterm-smart-tty-implementation.md)
 - [Spike 3 Implementation Plan](./spike-bounded-worker-queue-implementation.md)
 - [Spike 2 Implementation Plan](./spike-tty-row-updates-implementation.md)
 - [Original Spike Selection Notes](./output-spikes.md)
@@ -60,6 +63,7 @@ Compare any branch to the baseline:
 script/bench git -I rust -b 0c6137c -t spike/completion-order-output -d ~/work -c status -n 8
 script/bench git -I rust -b 0c6137c -t spike/bounded-worker-queue -d ~/work -c status -n 8
 script/bench git -I rust -b f035766 -t spike/tty-row-updates -d ~/work -c status -n 8
+script/bench git -I rust -b 0c6137c -t spike-crossterm-smart-tty -d ~/work -c status -n 8
 ```
 
 What to record:
@@ -134,3 +138,12 @@ Copy this block when recording a new spike result:
 - `script/bench git`: `f035766-f035766 ran 1.02 ± 0.03 times faster than spike/tty-row-updates-91b213a`
 - TTY UX notes: From the `script` capture, visible feedback begins immediately with one sorted `running...` row per repo, and completions rewrite those fixed rows in place. That makes slow repos easier to track than Spike 1, but the initial full-screen placeholder burst is dense on a 98-repo workspace.
 - Non-TTY UX notes: Redirected stdout stayed in completion order with stable IDs and no ANSI escapes. The first ten redirected lines were plain status lines such as `[002 agentic-dev                  ] clean`.
+
+### Spike 4
+
+- Branch: `spike-crossterm-smart-tty`
+- Base ref: `0c6137c`
+- Trace summary: `first_print_ms=100 delayed_repos=29 max_ordered_wait_ms=12 total_ms=3226`
+- `script/bench git`: `0c6137c-0c6137c ran 1.01 ± 0.03 times faster than spike-crossterm-smart-tty-53c5b4f`
+- TTY UX notes: No placeholder burst. Completed repos scroll naturally with a sticky progress footer (`[45/98 complete | 8 running | 2.1s]`) that updates in place via crossterm. Clean scrollback history. Footer clears on completion.
+- Non-TTY UX notes: Redirected stdout is plain completion-order lines with stable IDs and no ANSI escapes. Identical format to Spike 1 non-TTY output.
