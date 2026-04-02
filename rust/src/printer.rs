@@ -3,24 +3,16 @@ use std::time::Instant;
 
 use crossterm::{cursor, execute, terminal};
 
-/// Repo label formatted for output: `[001 repo-name  ]`
+/// Repo label formatted for output: `[repo-name  ]`
 pub struct RepoRow {
-    pub idx: usize,
     pub name: String,
-    pub id_width: usize,
     pub name_width: usize,
 }
 
 impl RepoRow {
     pub fn label(&self) -> String {
         let display_name = truncate_name(&self.name, self.name_width);
-        format!(
-            "[{:0id_width$} {:<name_width$}]",
-            self.idx,
-            display_name,
-            id_width = self.id_width,
-            name_width = self.name_width
-        )
+        format!("[{:<width$}]", display_name, width = self.name_width)
     }
 }
 
@@ -136,25 +128,23 @@ impl<W: Write> TtyPrinter<W> {
 mod tests {
     use super::*;
 
-    fn make_row(idx: usize, name: &str) -> RepoRow {
+    fn make_row(name: &str) -> RepoRow {
         RepoRow {
-            idx,
             name: name.to_string(),
-            id_width: 3,
             name_width: 12,
         }
     }
 
     #[test]
     fn repo_row_label_formats_correctly() {
-        let row = make_row(2, "agentic-dev");
-        assert_eq!(row.label(), "[002 agentic-dev ]");
+        let row = make_row("agentic-dev");
+        assert_eq!(row.label(), "[agentic-dev ]");
     }
 
     #[test]
     fn repo_row_label_truncates_long_names() {
-        let row = make_row(1, "very-long-repo-name-here");
-        assert_eq!(row.label(), "[001 very-lon-...]");
+        let row = make_row("very-long-repo-name-here");
+        assert_eq!(row.label(), "[very-lon-...]");
     }
 
     #[test]
@@ -162,13 +152,13 @@ mod tests {
         let mut buf = Vec::new();
         {
             let mut printer = StreamPrinter::new(&mut buf);
-            printer.print_result(&make_row(1, "repo-a"), "clean");
-            printer.print_result(&make_row(2, "repo-b"), "1 modified");
+            printer.print_result(&make_row("repo-a"), "clean");
+            printer.print_result(&make_row("repo-b"), "1 modified");
             printer.finish();
         }
         let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("[001 repo-a      ] clean\n"));
-        assert!(output.contains("[002 repo-b      ] 1 modified\n"));
+        assert!(output.contains("[repo-a      ] clean\n"));
+        assert!(output.contains("[repo-b      ] 1 modified\n"));
         assert!(!output.contains('\x1b'), "non-TTY output must not contain ANSI escapes");
     }
 
@@ -180,12 +170,10 @@ mod tests {
             let mut printer = TtyPrinter::new(&mut buf, 3, started);
             printer.mark_started();
             printer.mark_started();
-            printer.print_result(&make_row(2, "repo-b"), "clean");
+            printer.print_result(&make_row("repo-b"), "clean");
         }
         let output = String::from_utf8(buf).unwrap();
-        // Should contain the completed line
-        assert!(output.contains("[002 repo-b      ] clean"));
-        // Should contain footer text (progress indicator)
+        assert!(output.contains("[repo-b      ] clean"));
         assert!(output.contains("complete"));
         assert!(output.contains("running"));
     }
@@ -197,12 +185,10 @@ mod tests {
         {
             let mut printer = TtyPrinter::new(&mut buf, 1, started);
             printer.mark_started();
-            printer.print_result(&make_row(1, "repo-a"), "clean");
+            printer.print_result(&make_row("repo-a"), "clean");
             printer.finish();
         }
         let output = String::from_utf8(buf).unwrap();
-        // After all repos complete, print_result doesn't write a new footer
-        // and finish() clears any remaining footer
-        assert!(output.contains("[001 repo-a      ] clean"));
+        assert!(output.contains("[repo-a      ] clean"));
     }
 }

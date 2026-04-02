@@ -77,11 +77,11 @@ fn non_tty_output_has_no_escape_codes() {
         3,
         "expected one output line per repo: {stdout}"
     );
-    // Verify all three stable repo IDs are present
-    for id in ["[001 ", "[002 ", "[003 "] {
+    // Verify all three repo names are present in bracketed labels
+    for name in ["[a", "[b", "[c"] {
         assert!(
-            stdout.contains(id),
-            "expected stable repo ID {id} in output: {stdout}"
+            stdout.contains(name),
+            "expected repo label containing {name} in output: {stdout}"
         );
     }
 }

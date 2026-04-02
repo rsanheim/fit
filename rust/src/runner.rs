@@ -46,11 +46,6 @@ impl Semaphore {
 
 const MIN_REPO_NAME_WIDTH: usize = 4;
 const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
-const MIN_ID_WIDTH: usize = 3;
-
-fn compute_repo_id_width(repo_count: usize) -> usize {
-    repo_count.max(1).to_string().len().max(MIN_ID_WIDTH)
-}
 
 /// URL scheme to force for git operations
 #[derive(Clone, Copy)]
@@ -73,17 +68,13 @@ fn compute_name_width(repos: &[PathBuf], display_root: &Path) -> usize {
     capped.max(MIN_REPO_NAME_WIDTH)
 }
 
-/// Build RepoRow descriptors for all repos (sorted order, 1-indexed).
+/// Build RepoRow descriptors for all repos (sorted order).
 fn build_repo_rows(repos: &[PathBuf], display_root: &Path) -> Vec<RepoRow> {
     let name_width = compute_name_width(repos, display_root);
-    let id_width = compute_repo_id_width(repos.len());
     repos
         .iter()
-        .enumerate()
-        .map(|(i, repo)| RepoRow {
-            idx: i + 1,
+        .map(|repo| RepoRow {
             name: repo_display_name(repo, display_root),
-            id_width,
             name_width,
         })
         .collect()
@@ -453,25 +444,15 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_repo_id_width_minimum() {
-        assert_eq!(compute_repo_id_width(1), 3);
-        assert_eq!(compute_repo_id_width(98), 3);
-        assert_eq!(compute_repo_id_width(1234), 4);
-    }
-
-    #[test]
     fn test_build_repo_rows() {
         let root = PathBuf::from("/workspace");
         let repos = vec![root.join("alpha"), root.join("beta")];
         let rows = build_repo_rows(&repos, &root);
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].idx, 1);
         assert_eq!(rows[0].name, "alpha");
-        assert_eq!(rows[1].idx, 2);
         assert_eq!(rows[1].name, "beta");
-        // Labels should have stable IDs
-        assert!(rows[0].label().starts_with("[001 "));
-        assert!(rows[1].label().starts_with("[002 "));
+        assert!(rows[0].label().starts_with("[alpha"));
+        assert!(rows[1].label().starts_with("[beta"));
     }
 
     #[test]
