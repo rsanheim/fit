@@ -1,8 +1,17 @@
-use std::path::Path;
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct TraceConfig {
-    enabled: bool,
+    destination: Option<TraceDestination>,
+}
+
+#[derive(Clone)]
+enum TraceDestination {
+    Stderr,
+    File(Arc<Mutex<BufWriter<File>>>),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -27,41 +36,55 @@ impl RepoTraceSample {
 }
 
 impl TraceConfig {
-    pub fn from_env() -> Self {
+    pub fn from_env() -> io::Result<Self> {
+        let trace_path = std::env::var_os("GIT_ALL_TRACE_FILE")
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty());
         let enabled = std::env::var("GIT_ALL_TRACE")
             .map(|value| parse_trace_env(&value))
-            .unwrap_or(false);
-        Self { enabled }
+            .unwrap_or(false)
+            || trace_path.is_some();
+
+        if !enabled {
+            return Ok(Self::default());
+        }
+
+        let destination = match trace_path {
+            Some(path) => Some(TraceDestination::File(Arc::new(Mutex::new(
+                BufWriter::new(File::create(path)?),
+            )))),
+            None => Some(TraceDestination::Stderr),
+        };
+
+        Ok(Self { destination })
     }
 
-    pub fn enabled(self) -> bool {
-        self.enabled
+    pub fn enabled(&self) -> bool {
+        self.destination.is_some()
     }
 
     pub fn emit_scan(
-        self,
+        &self,
         command: &str,
         root: &Path,
         repo_count: usize,
         workers: usize,
         scan_ms: u128,
     ) {
-        if !self.enabled {
-            return;
-        }
-
-        eprintln!(
+        self.write_line(&format!(
             "git-all-trace phase=scan command={command:?} root={:?} repos={repo_count} workers={workers} scan_ms={scan_ms}",
             root.to_string_lossy()
-        );
+        ));
     }
 
-    pub fn emit_repo(self, idx: usize, repo_name: &str, sample: RepoTraceSample, printed_ms: u128) {
-        if !self.enabled {
-            return;
-        }
-
-        eprintln!(
+    pub fn emit_repo(
+        &self,
+        idx: usize,
+        repo_name: &str,
+        sample: RepoTraceSample,
+        printed_ms: u128,
+    ) {
+        self.write_line(&format!(
             concat!(
                 "git-all-trace phase=repo idx={idx} repo={repo_name:?} ",
                 "start_ms={start_ms} spawn_ms={spawn_ms} exit_ms={exit_ms} ",
@@ -79,11 +102,11 @@ impl TraceConfig {
             stdout_bytes = sample.stdout_bytes,
             stderr_bytes = sample.stderr_bytes,
             success = sample.success,
-        );
+        ));
     }
 
     pub fn emit_summary(
-        self,
+        &self,
         repo_count: usize,
         first_exit_ms: Option<u128>,
         first_print_ms: Option<u128>,
@@ -91,11 +114,7 @@ impl TraceConfig {
         max_ordered_wait_ms: u128,
         total_ms: u128,
     ) {
-        if !self.enabled {
-            return;
-        }
-
-        eprintln!(
+        self.write_line(&format!(
             concat!(
                 "git-all-trace phase=summary repos={repo_count} ",
                 "first_exit_ms={first_exit_ms} first_print_ms={first_print_ms} ",
@@ -111,7 +130,19 @@ impl TraceConfig {
             delayed_repos = delayed_repos,
             max_ordered_wait_ms = max_ordered_wait_ms,
             total_ms = total_ms,
-        );
+        ));
+    }
+
+    fn write_line(&self, line: &str) {
+        match &self.destination {
+            None => {}
+            Some(TraceDestination::Stderr) => eprintln!("{line}"),
+            Some(TraceDestination::File(writer)) => {
+                if let Ok(mut writer) = writer.lock() {
+                    let _ = writeln!(writer, "{line}");
+                }
+            }
+        }
     }
 }
 

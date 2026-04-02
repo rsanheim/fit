@@ -117,7 +117,7 @@ fn passthrough_to_git() -> ! {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let is_meta = args.first().map(|s| s == "meta").unwrap_or(false);
-    let trace = TraceConfig::from_env();
+    let trace = TraceConfig::from_env()?;
 
     if !is_meta && is_inside_git_repo() {
         passthrough_to_git();

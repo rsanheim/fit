@@ -120,8 +120,8 @@ impl ExecutionContext {
         &self.display_root
     }
 
-    pub fn trace(&self) -> TraceConfig {
-        self.trace
+    pub fn trace(&self) -> &TraceConfig {
+        &self.trace
     }
 }
 
