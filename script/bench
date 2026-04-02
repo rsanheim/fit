@@ -15,6 +15,21 @@ WORKERS="8"
 IMPL="rust"
 WORKER_LIST="1,2,4,8,12,16"
 
+sanitize_ref_name() {
+    printf '%s' "$1" | tr '/:' '--'
+}
+
+run_build_cmd() {
+    local workdir="$1"
+    local build_cmd="$2"
+
+    if command -v mise >/dev/null 2>&1 && [[ -f "${GIT_ALL_ROOT}/mise.toml" ]]; then
+        mise exec -C "${GIT_ALL_ROOT}" -- bash -c "cd \"$workdir\" && $build_cmd"
+    else
+        (cd "$workdir" && eval "$build_cmd")
+    fi
+}
+
 show_help() {
     cat <<'EOF'
 bench - Benchmark git-all implementations
@@ -301,9 +316,13 @@ cmd_git() {
     # The SHA suffix in the binary path ensures uniqueness even if the ref moves
     local BASELINE_NAME="$BASELINE_REF"
     local TARGET_NAME="$TARGET_REF"
+    local BASELINE_SAFE_NAME
+    local TARGET_SAFE_NAME
+    BASELINE_SAFE_NAME=$(sanitize_ref_name "$BASELINE_NAME")
+    TARGET_SAFE_NAME=$(sanitize_ref_name "$TARGET_NAME")
 
-    local BASELINE_BIN="/tmp/git-all-${IMPL}-${BASELINE_NAME}-${BASELINE_SHA}"
-    local TARGET_BIN="/tmp/git-all-${IMPL}-${TARGET_NAME}-${TARGET_SHA}"
+    local BASELINE_BIN="/tmp/git-all-${IMPL}-${BASELINE_SAFE_NAME}-${BASELINE_SHA}"
+    local TARGET_BIN="/tmp/git-all-${IMPL}-${TARGET_SAFE_NAME}-${TARGET_SHA}"
 
     local BUILD_CMD
     BUILD_CMD=$(get_build_cmd "$IMPL" "release")
@@ -344,7 +363,7 @@ cmd_git() {
         VERIFIED_SHA=$(git -C "$WORKTREE_BASELINE_DIR" rev-parse --short HEAD)
         echo "Verified HEAD: $VERIFIED_SHA"
         echo "Build command: $BUILD_CMD"
-        (cd "$WORKTREE_BASELINE_DIR/$IMPL" && $BUILD_CMD)
+        run_build_cmd "$WORKTREE_BASELINE_DIR/$IMPL" "$BUILD_CMD"
         local BASELINE_BINARY_PATH
         BASELINE_BINARY_PATH=$(get_worktree_binary_path "$WORKTREE_BASELINE_DIR" "$IMPL")
         cp "$BASELINE_BINARY_PATH" "$BASELINE_BIN"
@@ -363,7 +382,7 @@ cmd_git() {
         VERIFIED_SHA=$(git -C "$WORKTREE_TARGET_DIR" rev-parse --short HEAD)
         echo "Verified HEAD: $VERIFIED_SHA"
         echo "Build command: $BUILD_CMD"
-        (cd "$WORKTREE_TARGET_DIR/$IMPL" && $BUILD_CMD)
+        run_build_cmd "$WORKTREE_TARGET_DIR/$IMPL" "$BUILD_CMD"
         local TARGET_BINARY_PATH
         TARGET_BINARY_PATH=$(get_worktree_binary_path "$WORKTREE_TARGET_DIR" "$IMPL")
         cp "$TARGET_BINARY_PATH" "$TARGET_BIN"
