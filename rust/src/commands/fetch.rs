@@ -44,7 +44,7 @@ impl OutputFormatter for FetchFormatter {
     }
 }
 
-pub fn run(ctx: &ExecutionContext, repos: &[PathBuf], extra_args: &[String]) -> Result<()> {
+pub fn run(ctx: &mut ExecutionContext, repos: &[PathBuf], extra_args: &[String]) -> Result<()> {
     let formatter = FetchFormatter;
 
     run_parallel(
