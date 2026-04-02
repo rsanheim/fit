@@ -1,10 +1,14 @@
 use anyhow::Result;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
+use crossterm::tty::IsTty;
+
+use crate::printer::{RepoRow, StreamPrinter, TtyPrinter};
 use crate::repo::repo_display_name;
 use crate::trace::{RepoTraceSample, TraceSink};
 
@@ -43,6 +47,10 @@ impl Semaphore {
 const MIN_REPO_NAME_WIDTH: usize = 4;
 const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
 
+fn compute_repo_id_width(repo_count: usize) -> usize {
+    repo_count.max(1).to_string().len().max(3)
+}
+
 /// URL scheme to force for git operations
 #[derive(Clone, Copy)]
 pub enum UrlScheme {
@@ -52,7 +60,7 @@ pub enum UrlScheme {
     Https,
 }
 
-/// Format repo name with fixed width: truncate long names, pad short ones
+/// Compute the max display name width across all repos, clamped to bounds.
 fn compute_name_width(repos: &[PathBuf], display_root: &Path) -> usize {
     let mut max_len = 0usize;
     for repo in repos {
@@ -64,18 +72,31 @@ fn compute_name_width(repos: &[PathBuf], display_root: &Path) -> usize {
     capped.max(MIN_REPO_NAME_WIDTH)
 }
 
-/// Format repo name with fixed width: truncate long names, pad short ones
-fn format_repo_name(name: &str, width: usize) -> String {
-    let display_name = if name.len() > width {
-        if width <= 4 {
-            name.chars().take(width).collect()
-        } else {
-            format!("{}-...", &name[..width - 4])
-        }
-    } else {
-        name.to_string()
-    };
-    format!("[{:<width$}]", display_name, width = width)
+/// Build RepoRow descriptors for all repos (sorted order, 1-indexed).
+fn build_repo_rows(repos: &[PathBuf], display_root: &Path) -> Vec<RepoRow> {
+    let name_width = compute_name_width(repos, display_root);
+    let id_width = compute_repo_id_width(repos.len());
+    repos
+        .iter()
+        .enumerate()
+        .map(|(i, repo)| RepoRow {
+            idx: i + 1,
+            name: repo_display_name(repo, display_root),
+            id_width,
+            name_width,
+        })
+        .collect()
+}
+
+/// Format a git command result into a single status string.
+pub fn format_status(
+    result: &Result<Output, std::io::Error>,
+    formatter: &dyn OutputFormatter,
+) -> String {
+    match result {
+        Ok(output) => formatter.format(output),
+        Err(e) => format!("ERROR: {}", e),
+    }
 }
 
 /// Execution context holding configuration for running git commands
@@ -192,9 +213,11 @@ pub trait OutputFormatter: Sync {
 
 /// Run commands in parallel across all repos with streaming output.
 ///
-/// Results are printed in alphabetical order (repos are pre-sorted) as soon as
-/// contiguous results are available. Uses head-of-line blocking: if repo "aaa"
-/// is slow, "bbb" and "ccc" won't print until "aaa" completes.
+/// Repos are discovered and sorted deterministically up front. Results are then
+/// printed in completion order with stable repo IDs derived from that sorted list.
+///
+/// TTY mode: completion-order lines with a sticky progress footer (crossterm).
+/// Non-TTY mode: plain completion-order lines without ANSI escapes.
 ///
 /// Uses thread-per-process pattern with `wait_with_output()` which is deadlock-safe
 /// (stdlib internally spawns threads to drain stdout/stderr concurrently).
@@ -218,7 +241,7 @@ where
         return Ok(());
     }
 
-    let name_width = compute_name_width(repos, ctx.display_root());
+    let rows = build_repo_rows(repos, ctx.display_root());
     let run_started_at = Instant::now();
 
     let max_workers = ctx.max_connections();
@@ -229,20 +252,15 @@ where
         None
     };
 
-    let mut results: Vec<
-        Option<(
-            PathBuf,
-            Result<Output, std::io::Error>,
-            Option<RepoTraceSample>,
-        )>,
-    > = (0..repos.len()).map(|_| None).collect();
-    let mut next_to_print: usize = 0;
     let mut first_exit_ms: Option<u128> = None;
     let mut first_print_ms: Option<u128> = None;
     let mut delayed_repos: usize = 0;
     let mut max_ordered_wait_ms: u128 = 0;
 
     let (tx, rx) = mpsc::channel();
+
+    let stdout = io::stdout();
+    let is_tty = stdout.is_tty();
 
     std::thread::scope(|s| -> Result<()> {
         for (idx, repo) in repos.iter().enumerate() {
@@ -255,6 +273,8 @@ where
                 if let Some(ref sem) = sem {
                     sem.acquire();
                 }
+
+                let _ = tx.send((idx, repo.clone(), None, None)); // signal started
 
                 let start_ms = if trace_enabled {
                     Some(run_started_at.elapsed().as_millis())
@@ -299,47 +319,70 @@ where
                     sem.release();
                 }
 
-                let _ = tx.send((idx, repo, result, trace_sample));
+                let _ = tx.send((idx, repo, Some(result), trace_sample));
             });
         }
         drop(tx);
 
-        for (idx, repo, result, trace_sample) in rx {
-            results[idx] = Some((repo, result, trace_sample));
+        if is_tty {
+            let mut writer = stdout.lock();
+            let mut printer = TtyPrinter::new(&mut writer, repos.len(), run_started_at);
 
-            while next_to_print < results.len() {
-                if let Some((ref repo_path, ref res, ref sample)) = results[next_to_print] {
-                    print_result(repo_path, res, formatter, ctx.display_root(), name_width);
-
-                    if let Some(sample) = sample {
-                        let printed_ms = run_started_at.elapsed().as_millis();
-                        let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
-                        let repo_name = repo_display_name(repo_path, ctx.display_root());
-                        first_exit_ms = Some(
-                            first_exit_ms
-                                .map_or(sample.exit_ms, |current| current.min(sample.exit_ms)),
-                        );
-                        first_print_ms = Some(
-                            first_print_ms.map_or(printed_ms, |current| current.min(printed_ms)),
-                        );
-                        if ordered_wait_ms > 0 {
-                            delayed_repos += 1;
-                        }
-                        max_ordered_wait_ms = max_ordered_wait_ms.max(ordered_wait_ms);
-                        ctx.trace_mut().emit_repo(
-                            next_to_print,
-                            &repo_name,
-                            *sample,
-                            printed_ms,
-                        )?;
+            for (idx, _repo, result, trace_sample) in &rx {
+                match result {
+                    None => {
+                        printer.mark_started();
                     }
+                    Some(ref res) => {
+                        let status_text = format_status(res, formatter);
+                        printer.print_result(&rows[idx], &status_text);
 
-                    next_to_print += 1;
-                } else {
-                    break;
+                        if let Some(sample) = trace_sample {
+                            emit_trace(
+                                ctx,
+                                idx,
+                                &rows[idx].name,
+                                sample,
+                                run_started_at,
+                                &mut first_exit_ms,
+                                &mut first_print_ms,
+                                &mut delayed_repos,
+                                &mut max_ordered_wait_ms,
+                            )?;
+                        }
+                    }
                 }
             }
+            printer.finish();
+        } else {
+            let mut writer = stdout.lock();
+            let mut printer = StreamPrinter::new(&mut writer);
+
+            for (idx, _repo, result, trace_sample) in &rx {
+                if result.is_none() {
+                    continue; // skip "started" signals in non-TTY mode
+                }
+                let res = result.as_ref().unwrap();
+                let status_text = format_status(res, formatter);
+                printer.print_result(&rows[idx], &status_text);
+
+                if let Some(sample) = trace_sample {
+                    emit_trace(
+                        ctx,
+                        idx,
+                        &rows[idx].name,
+                        sample,
+                        run_started_at,
+                        &mut first_exit_ms,
+                        &mut first_print_ms,
+                        &mut delayed_repos,
+                        &mut max_ordered_wait_ms,
+                    )?;
+                }
+            }
+            printer.finish();
         }
+
         Ok(())
     })?;
 
@@ -355,48 +398,32 @@ where
     Ok(())
 }
 
-/// Print result for a single repository
-fn print_result(
-    repo_path: &std::path::Path,
-    result: &Result<Output, std::io::Error>,
-    formatter: &dyn OutputFormatter,
-    display_root: &std::path::Path,
-    name_width: usize,
-) {
-    let name = repo_display_name(repo_path, display_root);
-    let output_line = match result {
-        Ok(output) => {
-            let formatted = formatter.format(output);
-            format!("{} {}", format_repo_name(&name, name_width), formatted)
-        }
-        Err(e) => format!("{} ERROR: {}", format_repo_name(&name, name_width), e),
-    };
-    println!("{}", output_line);
+fn emit_trace(
+    ctx: &mut ExecutionContext,
+    idx: usize,
+    repo_name: &str,
+    sample: RepoTraceSample,
+    run_started_at: Instant,
+    first_exit_ms: &mut Option<u128>,
+    first_print_ms: &mut Option<u128>,
+    delayed_repos: &mut usize,
+    max_ordered_wait_ms: &mut u128,
+) -> Result<()> {
+    let printed_ms = run_started_at.elapsed().as_millis();
+    let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
+    *first_exit_ms = Some(first_exit_ms.map_or(sample.exit_ms, |current| current.min(sample.exit_ms)));
+    *first_print_ms = Some(first_print_ms.map_or(printed_ms, |current| current.min(printed_ms)));
+    if ordered_wait_ms > 0 {
+        *delayed_repos += 1;
+    }
+    *max_ordered_wait_ms = (*max_ordered_wait_ms).max(ordered_wait_ms);
+    ctx.trace_mut().emit_repo(idx, repo_name, sample, printed_ms)?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_format_repo_name_short() {
-        let result = format_repo_name("my-repo", 24);
-        assert_eq!(result, "[my-repo                 ]");
-        assert_eq!(result.len(), 26); // [ + 24 + ]
-    }
-
-    #[test]
-    fn test_format_repo_name_exact_length() {
-        let result = format_repo_name("exactly-twenty-four-chr", 24);
-        assert_eq!(result.len(), 26);
-    }
-
-    #[test]
-    fn test_format_repo_name_truncated() {
-        let result = format_repo_name("this-is-a-very-long-repository-name", 24);
-        assert_eq!(result, "[this-is-a-very-long--...]");
-        assert_eq!(result.len(), 26);
-    }
 
     #[test]
     fn test_compute_name_width_caps_and_min() {
@@ -412,6 +439,57 @@ mod tests {
         let tiny = vec![root.join("a")];
         let tiny_width = compute_name_width(&tiny, &root);
         assert_eq!(tiny_width, MIN_REPO_NAME_WIDTH);
+    }
+
+    #[test]
+    fn test_compute_repo_id_width_minimum() {
+        assert_eq!(compute_repo_id_width(1), 3);
+        assert_eq!(compute_repo_id_width(98), 3);
+        assert_eq!(compute_repo_id_width(1234), 4);
+    }
+
+    #[test]
+    fn test_build_repo_rows() {
+        let root = PathBuf::from("/workspace");
+        let repos = vec![root.join("alpha"), root.join("beta")];
+        let rows = build_repo_rows(&repos, &root);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].idx, 1);
+        assert_eq!(rows[0].name, "alpha");
+        assert_eq!(rows[1].idx, 2);
+        assert_eq!(rows[1].name, "beta");
+        // Labels should have stable IDs
+        assert!(rows[0].label().starts_with("[001 "));
+        assert!(rows[1].label().starts_with("[002 "));
+    }
+
+    #[test]
+    fn test_format_status_success() {
+        struct TestFormatter;
+        impl OutputFormatter for TestFormatter {
+            fn format(&self, _output: &Output) -> String {
+                "clean".to_string()
+            }
+        }
+        let output = Output {
+            status: std::process::ExitStatus::default(),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        };
+        assert_eq!(format_status(&Ok(output), &TestFormatter), "clean");
+    }
+
+    #[test]
+    fn test_format_status_error() {
+        struct TestFormatter;
+        impl OutputFormatter for TestFormatter {
+            fn format(&self, _output: &Output) -> String {
+                unreachable!()
+            }
+        }
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "git not found");
+        let result = format_status(&Err(err), &TestFormatter);
+        assert!(result.starts_with("ERROR:"));
     }
 
     /// Test that large output (>64KB) doesn't cause pipe buffer deadlock.

@@ -3,7 +3,7 @@ use std::process::Command;
 
 #[cfg(unix)]
 #[test]
-fn trace_reports_ordered_wait_for_blocked_repos() {
+fn trace_reports_low_ordered_wait_for_completion_order_output() {
     let temp = tempfile::tempdir().expect("temp dir");
 
     create_delay_repos(temp.path());
@@ -47,9 +47,40 @@ fn trace_reports_ordered_wait_for_blocked_repos() {
         .filter(|line| line.contains("git-all-trace phase=repo"))
         .filter_map(parse_ordered_wait_ms)
         .collect();
+    let max_wait = ordered_waits.iter().copied().max().unwrap_or(0);
     assert!(
-        ordered_waits.iter().any(|wait_ms| *wait_ms >= 500),
-        "expected at least one repo to wait behind ordered output: {stderr}"
+        max_wait < 200,
+        "completion-order output should have low ordered wait, got max {max_wait}ms: {stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn non_tty_output_has_no_escape_codes() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    create_delay_repos(temp.path());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-all"))
+        .args(["-n", "3", "delay"])
+        .current_dir(temp.path())
+        .output()
+        .expect("git-all should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains('\x1b'),
+        "non-TTY output must not contain ANSI escape codes: {stdout}"
+    );
+    assert_eq!(
+        stdout.lines().count(),
+        3,
+        "expected one output line per repo: {stdout}"
+    );
+    // Verify stable repo IDs are present
+    assert!(
+        stdout.contains("[001 ") || stdout.contains("[002 ") || stdout.contains("[003 "),
+        "expected stable repo IDs in output: {stdout}"
     );
 }
 
