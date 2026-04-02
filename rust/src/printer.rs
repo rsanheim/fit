@@ -30,6 +30,12 @@ fn truncate_name(name: &str, width: usize) -> String {
     }
 }
 
+pub trait Printer {
+    fn mark_started(&mut self);
+    fn print_result(&mut self, row: &RepoRow, status: &str);
+    fn finish(&mut self);
+}
+
 /// Non-TTY printer: one plain-text line per completed repo.
 pub struct StreamPrinter<W: Write> {
     writer: W,
@@ -39,12 +45,16 @@ impl<W: Write> StreamPrinter<W> {
     pub fn new(writer: W) -> Self {
         Self { writer }
     }
+}
 
-    pub fn print_result(&mut self, row: &RepoRow, status: &str) {
+impl<W: Write> Printer for StreamPrinter<W> {
+    fn mark_started(&mut self) {}
+
+    fn print_result(&mut self, row: &RepoRow, status: &str) {
         let _ = writeln!(self.writer, "{} {}", row.label(), status);
     }
 
-    pub fn finish(&mut self) {
+    fn finish(&mut self) {
         let _ = self.writer.flush();
     }
 }
@@ -71,30 +81,6 @@ impl<W: Write> TtyPrinter<W> {
         }
     }
 
-    pub fn mark_started(&mut self) {
-        self.running += 1;
-        self.rewrite_footer();
-    }
-
-    pub fn print_result(&mut self, row: &RepoRow, status: &str) {
-        self.completed += 1;
-        debug_assert!(self.running > 0, "print_result called without preceding mark_started");
-        self.running = self.running.saturating_sub(1);
-
-        self.clear_footer();
-
-        let _ = writeln!(self.writer, "{} {}", row.label(), status);
-
-        if self.completed < self.total {
-            self.write_footer();
-        }
-    }
-
-    pub fn finish(&mut self) {
-        self.clear_footer();
-        let _ = self.writer.flush();
-    }
-
     fn clear_footer(&mut self) {
         if self.footer_visible {
             let _ = execute!(
@@ -117,10 +103,35 @@ impl<W: Write> TtyPrinter<W> {
         let _ = self.writer.flush();
         self.footer_visible = true;
     }
+}
 
-    fn rewrite_footer(&mut self) {
+impl<W: Write> Printer for TtyPrinter<W> {
+    fn mark_started(&mut self) {
+        self.running += 1;
         self.clear_footer();
         self.write_footer();
+    }
+
+    fn print_result(&mut self, row: &RepoRow, status: &str) {
+        self.completed += 1;
+        debug_assert!(
+            self.running > 0,
+            "print_result called without preceding mark_started"
+        );
+        self.running = self.running.saturating_sub(1);
+
+        self.clear_footer();
+
+        let _ = writeln!(self.writer, "{} {}", row.label(), status);
+
+        if self.completed < self.total {
+            self.write_footer();
+        }
+    }
+
+    fn finish(&mut self) {
+        self.clear_footer();
+        let _ = self.writer.flush();
     }
 }
 
@@ -159,7 +170,23 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("[repo-a      ] clean\n"));
         assert!(output.contains("[repo-b      ] 1 modified\n"));
-        assert!(!output.contains('\x1b'), "non-TTY output must not contain ANSI escapes");
+        assert!(
+            !output.contains('\x1b'),
+            "non-TTY output must not contain ANSI escapes"
+        );
+    }
+
+    #[test]
+    fn stream_printer_mark_started_is_noop() {
+        let mut buf = Vec::new();
+        {
+            let mut printer = StreamPrinter::new(&mut buf);
+            printer.mark_started();
+            printer.mark_started();
+            printer.finish();
+        }
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.is_empty());
     }
 
     #[test]
@@ -176,6 +203,26 @@ mod tests {
         assert!(output.contains("[repo-b      ] clean"));
         assert!(output.contains("complete"));
         assert!(output.contains("running"));
+    }
+
+    #[test]
+    fn tty_printer_interleaved_events() {
+        let mut buf = Vec::new();
+        let started = Instant::now();
+        {
+            let mut printer = TtyPrinter::new(&mut buf, 3, started);
+            printer.mark_started(); // repo a starts
+            printer.mark_started(); // repo b starts
+            printer.print_result(&make_row("repo-b"), "clean"); // b finishes
+            printer.mark_started(); // repo c starts
+            printer.print_result(&make_row("repo-a"), "1 modified"); // a finishes
+            printer.print_result(&make_row("repo-c"), "clean"); // c finishes
+            printer.finish();
+        }
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("[repo-b      ] clean"));
+        assert!(output.contains("[repo-a      ] 1 modified"));
+        assert!(output.contains("[repo-c      ] clean"));
     }
 
     #[test]

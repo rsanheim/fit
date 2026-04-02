@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use crossterm::tty::IsTty;
 
-use crate::printer::{RepoRow, StreamPrinter, TtyPrinter};
+use crate::printer::{Printer, RepoRow, StreamPrinter, TtyPrinter};
 use crate::repo::repo_display_name;
 use crate::trace::{RepoTraceSample, TraceSink};
 
@@ -81,7 +81,7 @@ fn build_repo_rows(repos: &[PathBuf], display_root: &Path) -> Vec<RepoRow> {
 }
 
 /// Format a git command result into a single status string.
-pub fn format_status(
+pub fn format_result(
     result: &Result<Output, std::io::Error>,
     formatter: &dyn OutputFormatter,
 ) -> String {
@@ -204,7 +204,7 @@ pub trait OutputFormatter: Sync {
 }
 
 enum RepoEvent {
-    Started { _idx: usize },
+    Started,
     Completed {
         idx: usize,
         result: Result<Output, std::io::Error>,
@@ -253,10 +253,7 @@ where
         None
     };
 
-    let mut first_exit_ms: Option<u128> = None;
-    let mut first_print_ms: Option<u128> = None;
-    let mut delayed_repos: usize = 0;
-    let mut max_ordered_wait_ms: u128 = 0;
+    let mut trace_acc = TraceAccumulator::default();
 
     let (tx, rx) = mpsc::channel();
 
@@ -274,7 +271,7 @@ where
                     sem.acquire();
                 }
 
-                let _ = tx.send(RepoEvent::Started { _idx: idx });
+                let _ = tx.send(RepoEvent::Started);
 
                 let start_ms = if trace_enabled {
                     Some(run_started_at.elapsed().as_millis())
@@ -328,99 +325,82 @@ where
         }
         drop(tx);
 
-        if is_tty {
-            let mut writer = stdout.lock();
-            let mut printer = TtyPrinter::new(&mut writer, repos.len(), run_started_at);
-
-            for event in &rx {
-                match event {
-                    RepoEvent::Started { .. } => {
-                        printer.mark_started();
-                    }
-                    RepoEvent::Completed { idx, ref result, trace } => {
-                        let status_text = format_status(result, formatter);
-                        printer.print_result(&rows[idx], &status_text);
-
-                        if let Some(sample) = trace {
-                            emit_trace(
-                                ctx,
-                                idx,
-                                &rows[idx].name,
-                                sample,
-                                run_started_at,
-                                &mut first_exit_ms,
-                                &mut first_print_ms,
-                                &mut delayed_repos,
-                                &mut max_ordered_wait_ms,
-                            )?;
-                        }
-                    }
-                }
-            }
-            printer.finish();
+        let mut writer = stdout.lock();
+        let mut printer: Box<dyn Printer> = if is_tty {
+            Box::new(TtyPrinter::new(&mut writer, repos.len(), run_started_at))
         } else {
-            let mut writer = stdout.lock();
-            let mut printer = StreamPrinter::new(&mut writer);
+            Box::new(StreamPrinter::new(&mut writer))
+        };
 
-            for event in &rx {
-                if let RepoEvent::Completed { idx, ref result, trace } = event {
-                    let status_text = format_status(result, formatter);
+        for event in &rx {
+            match event {
+                RepoEvent::Started => {
+                    printer.mark_started();
+                }
+                RepoEvent::Completed {
+                    idx,
+                    ref result,
+                    trace,
+                } => {
+                    let status_text = format_result(result, formatter);
                     printer.print_result(&rows[idx], &status_text);
 
                     if let Some(sample) = trace {
-                        emit_trace(
-                            ctx,
-                            idx,
-                            &rows[idx].name,
-                            sample,
-                            run_started_at,
-                            &mut first_exit_ms,
-                            &mut first_print_ms,
-                            &mut delayed_repos,
-                            &mut max_ordered_wait_ms,
-                        )?;
+                        trace_acc.record(ctx, idx, &rows[idx].name, sample, run_started_at)?;
                     }
                 }
             }
-            printer.finish();
         }
+        printer.finish();
 
         Ok(())
     })?;
 
     ctx.trace_mut().emit_summary(
         repos.len(),
-        first_exit_ms,
-        first_print_ms,
-        delayed_repos,
-        max_ordered_wait_ms,
+        trace_acc.first_exit_ms,
+        trace_acc.first_print_ms,
+        trace_acc.delayed_repos,
+        trace_acc.max_ordered_wait_ms,
         run_started_at.elapsed().as_millis(),
     )?;
 
     Ok(())
 }
 
-fn emit_trace(
-    ctx: &mut ExecutionContext,
-    idx: usize,
-    repo_name: &str,
-    sample: RepoTraceSample,
-    run_started_at: Instant,
-    first_exit_ms: &mut Option<u128>,
-    first_print_ms: &mut Option<u128>,
-    delayed_repos: &mut usize,
-    max_ordered_wait_ms: &mut u128,
-) -> Result<()> {
-    let printed_ms = run_started_at.elapsed().as_millis();
-    let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
-    *first_exit_ms = Some(first_exit_ms.map_or(sample.exit_ms, |current| current.min(sample.exit_ms)));
-    *first_print_ms = Some(first_print_ms.map_or(printed_ms, |current| current.min(printed_ms)));
-    if ordered_wait_ms > 0 {
-        *delayed_repos += 1;
+#[derive(Default)]
+struct TraceAccumulator {
+    first_exit_ms: Option<u128>,
+    first_print_ms: Option<u128>,
+    delayed_repos: usize,
+    max_ordered_wait_ms: u128,
+}
+
+impl TraceAccumulator {
+    fn record(
+        &mut self,
+        ctx: &mut ExecutionContext,
+        idx: usize,
+        repo_name: &str,
+        sample: RepoTraceSample,
+        run_started_at: Instant,
+    ) -> Result<()> {
+        let printed_ms = run_started_at.elapsed().as_millis();
+        let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
+        self.first_exit_ms = Some(
+            self.first_exit_ms
+                .map_or(sample.exit_ms, |current| current.min(sample.exit_ms)),
+        );
+        self.first_print_ms =
+            Some(self.first_print_ms.map_or(printed_ms, |current| current.min(printed_ms)));
+        if ordered_wait_ms > 0 {
+            self.delayed_repos += 1;
+        }
+        self.max_ordered_wait_ms = self.max_ordered_wait_ms.max(ordered_wait_ms);
+        ctx.trace_mut()
+            .emit_repo(idx, repo_name, sample, printed_ms)?;
+        Ok(())
     }
-    *max_ordered_wait_ms = (*max_ordered_wait_ms).max(ordered_wait_ms);
-    ctx.trace_mut().emit_repo(idx, repo_name, sample, printed_ms)?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -456,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_status_success() {
+    fn test_format_result_success() {
         struct TestFormatter;
         impl OutputFormatter for TestFormatter {
             fn format(&self, _output: &Output) -> String {
@@ -468,11 +448,11 @@ mod tests {
             stdout: Vec::new(),
             stderr: Vec::new(),
         };
-        assert_eq!(format_status(&Ok(output), &TestFormatter), "clean");
+        assert_eq!(format_result(&Ok(output), &TestFormatter), "clean");
     }
 
     #[test]
-    fn test_format_status_error() {
+    fn test_format_result_error() {
         struct TestFormatter;
         impl OutputFormatter for TestFormatter {
             fn format(&self, _output: &Output) -> String {
@@ -480,7 +460,7 @@ mod tests {
             }
         }
         let err = std::io::Error::new(std::io::ErrorKind::NotFound, "git not found");
-        let result = format_status(&Err(err), &TestFormatter);
+        let result = format_result(&Err(err), &TestFormatter);
         assert!(result.starts_with("ERROR:"));
     }
 
