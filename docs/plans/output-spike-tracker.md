@@ -17,7 +17,7 @@ Use this doc as the shared tracker until one spike wins.
 | Baseline | `0c6137c` | `0c6137c` | ordered append-only | measured | `499` | `97` | `2967` | `3094` | `~/work`, `status`, `-n 8`, trace file run on 2026-04-02 |
 | Spike 1 | `spike/completion-order-output` | `0c6137c` | completion-order live lines with stable repo IDs | measured | `139` | `28` | `20` | `2639` | commit `f035766`, same `~/work` trace setup as baseline |
 | Spike 3 | `spike/bounded-worker-queue` | `0c6137c` | ordered append-only | measured | `666` | `92` | `1239` | `2802` | trace on 2026-04-02; `script/bench git` showed baseline `1.04 ± 0.04x` faster, so this workload regressed slightly |
-| Spike 2 | `spike/tty-row-updates` | `f035766` | reserved sorted TTY rows, completion-order non-TTY fallback | planned |  |  |  |  | stack on validated Spike 1 non-TTY behavior |
+| Spike 2 | `spike/tty-row-updates` | `f035766` | reserved sorted TTY rows, completion-order non-TTY fallback | measured | `165` | `14` | `2` | `2525` | commit `91b213a`; `script/bench git` showed `f035766 1.02 ± 0.03x` faster; non-TTY stdout stayed plain text without ANSI escapes |
 
 ## Plan Links
 
@@ -123,3 +123,14 @@ Copy this block when recording a new spike result:
 - TTY UX notes: `<one or two sentences>`
 - Non-TTY UX notes: `<one or two sentences>`
 ```
+
+## Recorded Results
+
+### Spike 2
+
+- Branch: `spike/tty-row-updates`
+- Base ref: `f035766`
+- Trace summary: `first_print_ms=165 delayed_repos=14 max_ordered_wait_ms=2 total_ms=2525`
+- `script/bench git`: `f035766-f035766 ran 1.02 ± 0.03 times faster than spike/tty-row-updates-91b213a`
+- TTY UX notes: From the `script` capture, visible feedback begins immediately with one sorted `running...` row per repo, and completions rewrite those fixed rows in place. That makes slow repos easier to track than Spike 1, but the initial full-screen placeholder burst is dense on a 98-repo workspace.
+- Non-TTY UX notes: Redirected stdout stayed in completion order with stable IDs and no ANSI escapes. The first ten redirected lines were plain status lines such as `[002 agentic-dev                  ] clean`.
