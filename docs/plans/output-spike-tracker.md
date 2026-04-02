@@ -16,7 +16,7 @@ Use this doc as the shared tracker until one spike wins.
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
 | Baseline | `0c6137c` | `0c6137c` | ordered append-only | measured | `499` | `97` | `2967` | `3094` | `~/work`, `status`, `-n 8`, trace file run on 2026-04-02 |
 | Spike 1 | `spike/completion-order-output` | `0c6137c` | completion-order live lines with stable repo IDs | measured | `139` | `28` | `20` | `2639` | commit `f035766`, same `~/work` trace setup as baseline |
-| Spike 3 | `spike/bounded-worker-queue` | `0c6137c` | ordered append-only | planned |  |  |  |  | isolate scheduler overhead from output-policy changes |
+| Spike 3 | `spike/bounded-worker-queue` | `0c6137c` | ordered append-only | measured | `666` | `92` | `1239` | `2802` | trace on 2026-04-02; `script/bench git` showed baseline `1.04 ± 0.04x` faster, so this workload regressed slightly |
 | Spike 2 | `spike/tty-row-updates` | `f035766` | reserved sorted TTY rows, completion-order non-TTY fallback | planned |  |  |  |  | stack on validated Spike 1 non-TTY behavior |
 
 ## Plan Links
