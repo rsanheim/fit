@@ -14,6 +14,9 @@ crystal/lib/
 *.swp
 *~
 
+# Ruby
+vendor/bundle/
+
 # macOS
 .DS_Store
 

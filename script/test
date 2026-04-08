@@ -13,13 +13,14 @@ Usage: test [options]
 
 Options:
   -h, --help              Show this help message
-  -t, --type TYPE         Run tests for specific type only (rust, zig, crystal)
+  -t, --type TYPE         Run tests for specific type only (rust, zig, crystal, spec)
   -v, --verbose           Show verbose test output
 
 Examples:
   test                    Run all implementation tests
   test -t rust            Run only Rust tests
   test --type zig         Run only Zig tests
+  test -t spec            Run integration specs (Ruby/RSpec)
   test -v                 Run all tests with verbose output
 EOF
 }
@@ -78,6 +79,24 @@ run_tests() {
     return $status
 }
 
+run_spec_tests() {
+    echo "=== Running integration specs ==="
+    echo
+    local rspec_opts=()
+    if $VERBOSE; then
+        rspec_opts+=("--format" "documentation")
+    fi
+    (cd "$GIT_ALL_ROOT" && bundle exec rspec "${rspec_opts[@]}")
+    local status=$?
+    echo
+    if [[ $status -eq 0 ]]; then
+        echo "✓ integration specs passed"
+    else
+        echo "✗ integration specs failed"
+    fi
+    return $status
+}
+
 main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -108,6 +127,10 @@ main() {
 
     # Validate type if specified
     if [[ -n "$TYPE" ]]; then
+        if [[ "$TYPE" == "spec" ]]; then
+            run_spec_tests
+            exit $?
+        fi
         local valid=false
         for impl in $(discover_impl_names); do
             if [[ "$impl" == "$TYPE" ]]; then
@@ -117,7 +140,7 @@ main() {
         done
         if ! $valid; then
             echo "Unknown type: $TYPE"
-            echo "Available: $(discover_impl_names | tr '\n' ' ')"
+            echo "Available: $(discover_impl_names | tr '\n' ' ') spec"
             exit 1
         fi
     fi
