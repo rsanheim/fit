@@ -1,11 +1,13 @@
 use anyhow::Result;
+use crossterm::terminal::size as terminal_size;
+use crossterm::tty::IsTty;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
-use crate::printer::{PlainPrinter, Printer, RepoRow};
+use crate::printer::{PlainPrinter, Printer, RepoRow, TtyTablePrinter};
 use crate::repo::repo_display_name;
 use crate::trace::{RepoTraceSample, TraceSink};
 
@@ -213,7 +215,18 @@ where
         .map(|(idx, repo)| RepoRow::running(idx, repo_display_name(repo, ctx.display_root())))
         .collect();
     let stdout = std::io::stdout();
-    let mut printer = PlainPrinter::new(stdout.lock(), name_width);
+    let is_tty = stdout.is_tty();
+    let terminal_rows = if is_tty {
+        terminal_size().map(|(_, rows)| rows as usize).unwrap_or(24)
+    } else {
+        0
+    };
+    let stdout = stdout.lock();
+    let mut printer: Box<dyn Printer + '_> = if is_tty {
+        Box::new(TtyTablePrinter::new(stdout, terminal_rows, name_width))
+    } else {
+        Box::new(PlainPrinter::new(stdout, name_width))
+    };
     printer.start(&rows)?;
 
     let max_workers = ctx.max_connections();

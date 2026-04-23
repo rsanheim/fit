@@ -1,7 +1,11 @@
+use crossterm::cursor::{MoveToColumn, MoveUp};
+use crossterm::queue;
+use crossterm::terminal::{Clear, ClearType};
 use std::io::{self, Write};
+use std::time::Instant;
 
-pub(crate) fn format_repo_name(name: &str, width: usize) -> String {
-    let display_name = if name.len() > width {
+fn display_repo_name(name: &str, width: usize) -> String {
+    if name.len() > width {
         if width <= 4 {
             name.chars().take(width).collect()
         } else {
@@ -9,7 +13,11 @@ pub(crate) fn format_repo_name(name: &str, width: usize) -> String {
         }
     } else {
         name.to_string()
-    };
+    }
+}
+
+pub(crate) fn format_repo_name(name: &str, width: usize) -> String {
+    let display_name = display_repo_name(name, width);
     format!("[{:<width$}]", display_name, width = width)
 }
 
@@ -133,6 +141,124 @@ impl<W: Write> Printer for PlainPrinter<W> {
     }
 }
 
+pub struct TtyTablePrinter<W: Write> {
+    writer: W,
+    terminal_rows: usize,
+    repo_width: usize,
+    rows: Vec<RepoRow>,
+    rendered_line_count: usize,
+    started_at: Option<Instant>,
+    elapsed_override_ms: Option<u128>,
+}
+
+impl<W: Write> TtyTablePrinter<W> {
+    pub fn new(writer: W, terminal_rows: usize, repo_width: usize) -> Self {
+        Self {
+            writer,
+            terminal_rows,
+            repo_width,
+            rows: Vec::new(),
+            rendered_line_count: 0,
+            started_at: None,
+            elapsed_override_ms: None,
+        }
+    }
+
+    fn visible_height(&self) -> usize {
+        self.terminal_rows.saturating_sub(1).max(1)
+    }
+
+    fn viewport(&self) -> Viewport {
+        Viewport::for_rows(&self.rows, self.visible_height())
+    }
+
+    fn elapsed_ms(&self) -> u128 {
+        self.elapsed_override_ms.unwrap_or_else(|| {
+            self.started_at
+                .map(|started_at| started_at.elapsed().as_millis())
+                .unwrap_or(0)
+        })
+    }
+
+    fn footer(&self) -> FooterState {
+        let viewport = self.viewport();
+        let complete = self
+            .rows
+            .iter()
+            .filter(|row| row.state == RowState::Finished)
+            .count();
+        let running = self.rows.len().saturating_sub(complete);
+
+        FooterState {
+            visible_start: if self.rows.is_empty() {
+                0
+            } else {
+                viewport.start + 1
+            },
+            visible_end: viewport.end,
+            total_rows: self.rows.len(),
+            complete,
+            running,
+            elapsed_ms: self.elapsed_ms(),
+        }
+    }
+
+    fn render_row(&self, row: &RepoRow) -> String {
+        format!(
+            "{:<width$}  {}",
+            display_repo_name(&row.repo, self.repo_width),
+            row.output,
+            width = self.repo_width
+        )
+    }
+
+    fn render_frame(&mut self) -> io::Result<()> {
+        if self.rendered_line_count > 0 {
+            queue!(
+                self.writer,
+                MoveToColumn(0),
+                MoveUp(self.rendered_line_count as u16)
+            )?;
+        }
+
+        let viewport = self.viewport();
+        for row in &self.rows[viewport.start..viewport.end] {
+            queue!(self.writer, MoveToColumn(0), Clear(ClearType::CurrentLine))?;
+            writeln!(self.writer, "{}", self.render_row(row))?;
+        }
+
+        queue!(self.writer, MoveToColumn(0), Clear(ClearType::CurrentLine))?;
+        writeln!(self.writer, "{}", self.footer().render())?;
+        self.writer.flush()?;
+
+        self.rendered_line_count = viewport.end.saturating_sub(viewport.start) + 1;
+        Ok(())
+    }
+}
+
+impl<W: Write> Printer for TtyTablePrinter<W> {
+    fn start(&mut self, rows: &[RepoRow]) -> io::Result<()> {
+        self.rows = rows.to_vec();
+        self.started_at = Some(Instant::now());
+        self.elapsed_override_ms = None;
+        self.render_frame()
+    }
+
+    fn finish_row(&mut self, row_index: usize, row: &RepoRow) -> io::Result<()> {
+        if row_index < self.rows.len() {
+            self.rows[row_index] = row.clone();
+        }
+        self.elapsed_override_ms = None;
+        self.render_frame()
+    }
+
+    fn complete(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<()> {
+        self.rows = rows.to_vec();
+        self.elapsed_override_ms = Some(elapsed_ms);
+        self.render_frame()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +329,46 @@ mod tests {
             footer.render(),
             "showing 24-47 of 98 | 41 complete | 8 running | 2.1s"
         );
+    }
+
+    #[test]
+    fn tty_table_printer_renders_running_rows_without_headers() {
+        let rows = vec![
+            RepoRow::running(0, "activities".to_string()),
+            RepoRow::running(1, "agentic-dev".to_string()),
+        ];
+        let mut output = Vec::new();
+
+        {
+            let mut printer = TtyTablePrinter::new(&mut output, 6, 14);
+            printer.start(&rows).expect("tty start");
+        }
+
+        let rendered = String::from_utf8(output).expect("utf8");
+        assert!(rendered.contains("activities"));
+        assert!(rendered.contains("running"));
+        assert!(!rendered.contains("REPO"));
+        assert!(!rendered.contains("OUTPUT"));
+    }
+
+    #[test]
+    fn tty_table_printer_keeps_completed_rows_in_place() {
+        let mut rows = vec![
+            RepoRow::running(0, "activities".to_string()),
+            RepoRow::running(1, "agentic-dev".to_string()),
+        ];
+        let mut output = Vec::new();
+
+        {
+            let mut printer = TtyTablePrinter::new(&mut output, 6, 14);
+            printer.start(&rows).expect("tty start");
+            rows[0] = RepoRow::finished(0, "activities".to_string(), "clean".to_string());
+            printer.finish_row(0, &rows[0]).expect("tty finish");
+        }
+
+        let rendered = String::from_utf8(output).expect("utf8");
+        assert!(rendered.contains("activities"));
+        assert!(rendered.contains("clean"));
+        assert!(rendered.contains("agentic-dev"));
     }
 }
