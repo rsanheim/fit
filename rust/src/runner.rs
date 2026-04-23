@@ -45,13 +45,22 @@ impl Semaphore {
 
 const MIN_REPO_NAME_WIDTH: usize = 4;
 const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
+const DEFAULT_TERMINAL_COLUMNS: usize = 80;
 const DEFAULT_TERMINAL_ROWS: usize = 24;
 
-type RepoResult = (
-    PathBuf,
-    Result<Output, std::io::Error>,
-    Option<RepoTraceSample>,
-);
+type RepoCompletion = (PathBuf, Option<RepoTraceSample>);
+
+enum RepoEvent {
+    Started {
+        idx: usize,
+    },
+    Completed {
+        idx: usize,
+        repo: PathBuf,
+        result: Result<Output, std::io::Error>,
+        trace_sample: Option<RepoTraceSample>,
+    },
+}
 
 /// URL scheme to force for git operations
 #[derive(Clone, Copy)]
@@ -192,6 +201,27 @@ pub trait OutputFormatter: Sync {
     }
 }
 
+fn emit_traces_for_printed_rows(
+    ctx: &mut ExecutionContext,
+    completions: &[Option<RepoCompletion>],
+    printed_indices: &[usize],
+    printed_ms: u128,
+    summary: &mut TraceSummary,
+) -> Result<()> {
+    for idx in printed_indices {
+        let Some((repo_path, sample)) = &completions[*idx] else {
+            continue;
+        };
+        if let Some(sample) = sample {
+            summary.record(sample, printed_ms);
+            let repo_name = repo_display_name(repo_path, ctx.display_root());
+            ctx.trace_mut()
+                .emit_repo(*idx, &repo_name, *sample, printed_ms)?;
+        }
+    }
+    Ok(())
+}
+
 /// Run commands in parallel across all repos with streaming output.
 ///
 /// Results are printed in alphabetical order (repos are pre-sorted) as soon as
@@ -224,20 +254,25 @@ where
     let run_started_at = Instant::now();
     let mut rows: Vec<RepoRow> = repos
         .iter()
-        .map(|repo| RepoRow::running(repo_display_name(repo, ctx.display_root())))
+        .map(|repo| RepoRow::pending(repo_display_name(repo, ctx.display_root())))
         .collect();
     let stdout = std::io::stdout();
     let is_tty = stdout.is_tty();
-    let terminal_rows = if is_tty {
+    let (terminal_columns, terminal_rows) = if is_tty {
         terminal_size()
-            .map(|(_, rows)| rows as usize)
-            .unwrap_or(DEFAULT_TERMINAL_ROWS)
+            .map(|(columns, rows)| (columns as usize, rows as usize))
+            .unwrap_or((DEFAULT_TERMINAL_COLUMNS, DEFAULT_TERMINAL_ROWS))
     } else {
-        0
+        (0, 0)
     };
     let stdout = stdout.lock();
     let mut printer: Box<dyn Printer + '_> = if is_tty {
-        Box::new(TtyTablePrinter::new(stdout, terminal_rows, name_width))
+        Box::new(TtyTablePrinter::new(
+            stdout,
+            terminal_rows,
+            terminal_columns,
+            name_width,
+        ))
     } else {
         Box::new(PlainPrinter::new(stdout, name_width))
     };
@@ -251,8 +286,7 @@ where
         None
     };
 
-    let mut results: Vec<Option<RepoResult>> = (0..repos.len()).map(|_| None).collect();
-    let mut next_to_print: usize = 0;
+    let mut completions: Vec<Option<RepoCompletion>> = (0..repos.len()).map(|_| None).collect();
     let mut summary = TraceSummary::default();
 
     let (tx, rx) = mpsc::channel();
@@ -268,6 +302,7 @@ where
                 if let Some(ref sem) = sem {
                     sem.acquire();
                 }
+                let _ = tx.send(RepoEvent::Started { idx });
 
                 let start_ms = run_started_at.elapsed().as_millis();
                 let spawn_result = cmd.spawn(url_scheme);
@@ -300,39 +335,51 @@ where
                     sem.release();
                 }
 
-                let _ = tx.send((idx, repo, result, trace_sample));
+                let _ = tx.send(RepoEvent::Completed {
+                    idx,
+                    repo,
+                    result,
+                    trace_sample,
+                });
             });
         }
         drop(tx);
 
-        for (idx, repo, result, trace_sample) in rx {
-            results[idx] = Some((repo, result, trace_sample));
-
-            while next_to_print < results.len() {
-                let Some((repo_path, res, sample)) = &results[next_to_print] else {
-                    break;
-                };
-                let output_text = formatter.format_result(res);
-                let name = std::mem::take(&mut rows[next_to_print].repo);
-                rows[next_to_print] = RepoRow::finished(name, output_text);
-                let elapsed_ms = run_started_at.elapsed().as_millis();
-                printer.finish_row(&rows, next_to_print, elapsed_ms)?;
-                if let Some(sample) = sample {
-                    summary.record(sample, elapsed_ms);
-                    let repo_name = repo_display_name(repo_path, ctx.display_root());
-                    ctx.trace_mut()
-                        .emit_repo(next_to_print, &repo_name, *sample, elapsed_ms)?;
+        for event in rx {
+            match event {
+                RepoEvent::Started { idx } => {
+                    rows[idx].mark_running();
+                    let elapsed_ms = run_started_at.elapsed().as_millis();
+                    let _ = printer.update_row(&rows, idx, elapsed_ms)?;
                 }
-                next_to_print += 1;
+                RepoEvent::Completed {
+                    idx,
+                    repo,
+                    result,
+                    trace_sample,
+                } => {
+                    rows[idx].mark_finished(formatter.format_result(&result));
+                    completions[idx] = Some((repo, trace_sample));
+                    let elapsed_ms = run_started_at.elapsed().as_millis();
+                    let printed = printer.update_row(&rows, idx, elapsed_ms)?;
+                    emit_traces_for_printed_rows(
+                        ctx,
+                        &completions,
+                        &printed,
+                        elapsed_ms,
+                        &mut summary,
+                    )?;
+                }
             }
         }
         Ok(())
     })?;
 
     let total_ms = run_started_at.elapsed().as_millis();
+    let printed = printer.complete(&rows, total_ms)?;
+    emit_traces_for_printed_rows(ctx, &completions, &printed, total_ms, &mut summary)?;
     ctx.trace_mut()
         .emit_summary(repos.len(), &summary, total_ms)?;
-    printer.complete(&rows, total_ms)?;
 
     Ok(())
 }

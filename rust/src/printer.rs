@@ -24,6 +24,7 @@ pub(crate) fn format_repo_name(name: &str, width: usize) -> String {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowState {
+    Pending,
     Running,
     Finished,
 }
@@ -36,6 +37,16 @@ pub struct RepoRow {
 }
 
 impl RepoRow {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn pending(repo: String) -> Self {
+        Self {
+            repo,
+            output: "pending".to_string(),
+            state: RowState::Pending,
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn running(repo: String) -> Self {
         Self {
             repo,
@@ -44,12 +55,23 @@ impl RepoRow {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn finished(repo: String, output: String) -> Self {
         Self {
             repo,
             output,
             state: RowState::Finished,
         }
+    }
+
+    pub fn mark_running(&mut self) {
+        self.output = "running".to_string();
+        self.state = RowState::Running;
+    }
+
+    pub fn mark_finished(&mut self, output: String) {
+        self.output = output;
+        self.state = RowState::Finished;
     }
 }
 
@@ -63,7 +85,7 @@ impl Viewport {
         let height = height.max(1);
         let anchor = rows
             .iter()
-            .position(|row| row.state == RowState::Running)
+            .position(|row| row.state != RowState::Finished)
             .unwrap_or(rows.len().saturating_sub(height));
         let start = anchor.min(rows.len().saturating_sub(height));
         let end = (start + height).min(rows.len());
@@ -77,18 +99,20 @@ pub struct FooterState {
     pub total_rows: usize,
     pub complete: usize,
     pub running: usize,
+    pub pending: usize,
     pub elapsed_ms: u128,
 }
 
 impl FooterState {
-    pub fn render(&self) -> String {
+    pub fn render_message(&self) -> String {
         format!(
-            "showing {}-{} of {} | {} complete | {} running | {:.1}s",
+            "({}-{} of {}) | {} complete | {} running | {} pending | {:.1}s elapsed",
             self.visible_start,
             self.visible_end,
             self.total_rows,
             self.complete,
             self.running,
+            self.pending,
             self.elapsed_ms as f64 / 1000.0,
         )
     }
@@ -96,23 +120,46 @@ impl FooterState {
 
 pub trait Printer {
     fn start(&mut self, rows: &[RepoRow]) -> io::Result<()>;
-    fn finish_row(
+    fn update_row(
         &mut self,
         rows: &[RepoRow],
         row_index: usize,
         elapsed_ms: u128,
-    ) -> io::Result<()>;
-    fn complete(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<()>;
+    ) -> io::Result<Vec<usize>>;
+    fn complete(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<Vec<usize>>;
 }
 
 pub struct PlainPrinter<W: Write> {
     writer: W,
     repo_width: usize,
+    next_to_print: usize,
 }
 
 impl<W: Write> PlainPrinter<W> {
     pub fn new(writer: W, repo_width: usize) -> Self {
-        Self { writer, repo_width }
+        Self {
+            writer,
+            repo_width,
+            next_to_print: 0,
+        }
+    }
+
+    fn flush_finished_rows(&mut self, rows: &[RepoRow]) -> io::Result<Vec<usize>> {
+        let mut printed = Vec::new();
+        while self.next_to_print < rows.len()
+            && rows[self.next_to_print].state == RowState::Finished
+        {
+            let row = &rows[self.next_to_print];
+            writeln!(
+                self.writer,
+                "{} {}",
+                format_repo_name(&row.repo, self.repo_width),
+                row.output
+            )?;
+            printed.push(self.next_to_print);
+            self.next_to_print += 1;
+        }
+        Ok(printed)
     }
 }
 
@@ -121,45 +168,49 @@ impl<W: Write> Printer for PlainPrinter<W> {
         Ok(())
     }
 
-    fn finish_row(
+    fn update_row(
         &mut self,
         rows: &[RepoRow],
         row_index: usize,
         _elapsed_ms: u128,
-    ) -> io::Result<()> {
-        let row = &rows[row_index];
-        writeln!(
-            self.writer,
-            "{} {}",
-            format_repo_name(&row.repo, self.repo_width),
-            row.output
-        )
+    ) -> io::Result<Vec<usize>> {
+        if rows[row_index].state != RowState::Finished {
+            return Ok(Vec::new());
+        }
+        self.flush_finished_rows(rows)
     }
 
-    fn complete(&mut self, _rows: &[RepoRow], _elapsed_ms: u128) -> io::Result<()> {
-        Ok(())
+    fn complete(&mut self, rows: &[RepoRow], _elapsed_ms: u128) -> io::Result<Vec<usize>> {
+        self.flush_finished_rows(rows)
     }
 }
 
 pub struct TtyTablePrinter<W: Write> {
     writer: W,
     terminal_rows: usize,
+    terminal_columns: usize,
     repo_width: usize,
     rendered_line_count: usize,
 }
 
 impl<W: Write> TtyTablePrinter<W> {
-    pub fn new(writer: W, terminal_rows: usize, repo_width: usize) -> Self {
+    pub fn new(
+        writer: W,
+        terminal_rows: usize,
+        terminal_columns: usize,
+        repo_width: usize,
+    ) -> Self {
         Self {
             writer,
             terminal_rows,
+            terminal_columns,
             repo_width,
             rendered_line_count: 0,
         }
     }
 
     fn visible_height(&self) -> usize {
-        self.terminal_rows.saturating_sub(1).max(1)
+        self.terminal_rows.saturating_sub(2).max(1)
     }
 
     fn render_row(&self, row: &RepoRow) -> String {
@@ -171,7 +222,16 @@ impl<W: Write> TtyTablePrinter<W> {
         )
     }
 
-    fn render_frame(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<()> {
+    fn render_summary_row(&self, footer: &FooterState) -> String {
+        format!(
+            "{:<width$}  {}",
+            "SUMMARY",
+            footer.render_message(),
+            width = self.repo_width
+        )
+    }
+
+    fn render_frame(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<Vec<usize>> {
         if self.rendered_line_count > 0 {
             queue!(
                 self.writer,
@@ -190,7 +250,8 @@ impl<W: Write> TtyTablePrinter<W> {
             .iter()
             .filter(|r| r.state == RowState::Finished)
             .count();
-        let running = rows.len().saturating_sub(complete);
+        let running = rows.iter().filter(|r| r.state == RowState::Running).count();
+        let pending = rows.iter().filter(|r| r.state == RowState::Pending).count();
         let footer = FooterState {
             visible_start: if rows.is_empty() {
                 0
@@ -201,39 +262,74 @@ impl<W: Write> TtyTablePrinter<W> {
             total_rows: rows.len(),
             complete,
             running,
+            pending,
             elapsed_ms,
         };
+        let summary_row = self.render_summary_row(&footer);
+        let separator = "-".repeat(self.terminal_columns.max(summary_row.len()).max(4));
         queue!(self.writer, MoveToColumn(0), Clear(ClearType::CurrentLine))?;
-        writeln!(self.writer, "{}", footer.render())?;
+        writeln!(self.writer, "{}", separator)?;
+        queue!(self.writer, MoveToColumn(0), Clear(ClearType::CurrentLine))?;
+        writeln!(self.writer, "{}", summary_row)?;
         self.writer.flush()?;
 
-        self.rendered_line_count = viewport.end.saturating_sub(viewport.start) + 1;
-        Ok(())
+        self.rendered_line_count = viewport.end.saturating_sub(viewport.start) + 2;
+        Ok(rows
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, row)| (row.state == RowState::Finished).then_some(idx))
+            .collect())
     }
 }
 
 impl<W: Write> Printer for TtyTablePrinter<W> {
     fn start(&mut self, rows: &[RepoRow]) -> io::Result<()> {
-        self.render_frame(rows, 0)
+        self.render_frame(rows, 0).map(|_| ())
     }
 
-    fn finish_row(
+    fn update_row(
         &mut self,
         rows: &[RepoRow],
-        _row_index: usize,
+        row_index: usize,
         elapsed_ms: u128,
-    ) -> io::Result<()> {
+    ) -> io::Result<Vec<usize>> {
         self.render_frame(rows, elapsed_ms)
+            .map(|_| match rows[row_index].state {
+                RowState::Finished => vec![row_index],
+                RowState::Pending | RowState::Running => Vec::new(),
+            })
     }
 
-    fn complete(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<()> {
-        self.render_frame(rows, elapsed_ms)
+    fn complete(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<Vec<usize>> {
+        self.render_frame(rows, elapsed_ms).map(|_| Vec::new())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[derive(Clone, Default)]
+    struct SharedBuffer(Rc<RefCell<Vec<u8>>>);
+
+    impl SharedBuffer {
+        fn rendered(&self) -> String {
+            String::from_utf8(self.0.borrow().clone()).expect("utf8")
+        }
+    }
+
+    impl Write for SharedBuffer {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.borrow_mut().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn format_repo_name_pads_short() {
@@ -273,7 +369,7 @@ mod tests {
         {
             let mut printer = PlainPrinter::new(&mut output, 12);
             printer.start(&rows).expect("plain start");
-            printer.finish_row(&rows, 0, 0).expect("plain finish");
+            printer.update_row(&rows, 0, 0).expect("plain finish");
         }
 
         let rendered = String::from_utf8(output).expect("utf8");
@@ -292,7 +388,7 @@ mod tests {
         {
             let mut printer = PlainPrinter::new(&mut output, 24);
             printer.start(&rows).expect("plain start");
-            printer.finish_row(&rows, 0, 0).expect("plain finish");
+            printer.update_row(&rows, 0, 0).expect("plain finish");
         }
 
         let rendered = String::from_utf8(output).expect("utf8");
@@ -300,10 +396,38 @@ mod tests {
     }
 
     #[test]
+    fn plain_printer_buffers_out_of_order_finished_rows_until_contiguous() {
+        let output = SharedBuffer::default();
+        let mut rows = vec![
+            RepoRow::running("activities".to_string()),
+            RepoRow::running("agentic-dev".to_string()),
+        ];
+
+        {
+            let mut printer = PlainPrinter::new(output.clone(), 12);
+            printer.start(&rows).expect("plain start");
+
+            rows[1] = RepoRow::finished("agentic-dev".to_string(), "clean".to_string());
+            printer
+                .update_row(&rows, 1, 100)
+                .expect("plain first finish");
+            assert_eq!(output.rendered(), "");
+
+            rows[0] = RepoRow::finished("activities".to_string(), "clean".to_string());
+            printer
+                .update_row(&rows, 0, 200)
+                .expect("plain second finish");
+        }
+
+        let rendered = output.rendered();
+        assert_eq!(rendered, "[activities  ] clean\n[agentic-dev ] clean\n");
+    }
+
+    #[test]
     fn viewport_follows_first_unfinished_repo() {
         let rows = vec![
             RepoRow::finished("activities".to_string(), "clean".to_string()),
-            RepoRow::finished("agentic-dev".to_string(), "clean".to_string()),
+            RepoRow::pending("agentic-dev".to_string()),
             RepoRow::running("amion-api".to_string()),
             RepoRow::running("api-gateway".to_string()),
             RepoRow::running("billing".to_string()),
@@ -311,45 +435,106 @@ mod tests {
 
         let viewport = Viewport::for_rows(&rows, 3);
 
-        assert_eq!(viewport.start, 2);
-        assert_eq!(viewport.end, 5);
+        assert_eq!(viewport.start, 1);
+        assert_eq!(viewport.end, 4);
     }
 
     #[test]
-    fn footer_includes_slice_counts_and_elapsed_time() {
+    fn footer_includes_slice_counts_elapsed_and_pending() {
         let footer = FooterState {
             visible_start: 24,
             visible_end: 47,
             total_rows: 98,
             complete: 41,
             running: 8,
+            pending: 49,
             elapsed_ms: 2100,
         };
 
         assert_eq!(
-            footer.render(),
-            "showing 24-47 of 98 | 41 complete | 8 running | 2.1s"
+            footer.render_message(),
+            "(24-47 of 98) | 41 complete | 8 running | 49 pending | 2.1s elapsed"
         );
     }
 
     #[test]
-    fn tty_table_printer_renders_running_rows_without_headers() {
+    fn tty_table_printer_renders_pending_rows_without_headers() {
         let rows = vec![
-            RepoRow::running("activities".to_string()),
-            RepoRow::running("agentic-dev".to_string()),
+            RepoRow::pending("activities".to_string()),
+            RepoRow::pending("agentic-dev".to_string()),
         ];
         let mut output = Vec::new();
 
         {
-            let mut printer = TtyTablePrinter::new(&mut output, 6, 14);
+            let mut printer = TtyTablePrinter::new(&mut output, 6, 80, 14);
             printer.start(&rows).expect("tty start");
         }
 
         let rendered = String::from_utf8(output).expect("utf8");
         assert!(rendered.contains("activities"));
-        assert!(rendered.contains("running"));
+        assert!(rendered.contains("pending"));
         assert!(!rendered.contains("REPO"));
         assert!(!rendered.contains("OUTPUT"));
+    }
+
+    #[test]
+    fn tty_table_printer_updates_finished_rows_without_waiting_for_earlier_rows() {
+        let rows = vec![
+            RepoRow::pending("activities".to_string()),
+            RepoRow::finished("agentic-dev".to_string(), "clean".to_string()),
+        ];
+        let mut output = Vec::new();
+
+        {
+            let mut printer = TtyTablePrinter::new(&mut output, 6, 80, 14);
+            printer.start(&rows).expect("tty start");
+            printer
+                .update_row(&rows, 1, 200)
+                .expect("tty out of order finish");
+        }
+
+        let rendered = String::from_utf8(output).expect("utf8");
+        assert!(rendered.contains("activities"));
+        assert!(rendered.contains("pending"));
+        assert!(rendered.contains("agentic-dev"));
+        assert!(rendered.contains("clean"));
+    }
+
+    #[test]
+    fn tty_table_printer_renders_summary_row_with_separator() {
+        let rows = vec![RepoRow::finished(
+            "activities".to_string(),
+            "clean".to_string(),
+        )];
+        let mut output = Vec::new();
+
+        {
+            let mut printer = TtyTablePrinter::new(&mut output, 6, 80, 14);
+            printer.start(&rows).expect("tty start");
+            printer.complete(&rows, 1200).expect("tty complete");
+        }
+
+        let rendered = String::from_utf8(output).expect("utf8");
+        assert!(rendered.contains("SUMMARY"));
+        assert!(rendered.contains("elapsed"));
+        assert!(rendered.contains("----"));
+    }
+
+    #[test]
+    fn tty_table_printer_separator_scales_past_tiny_terminal_width() {
+        let rows = vec![RepoRow::finished(
+            "activities".to_string(),
+            "clean".to_string(),
+        )];
+        let mut output = Vec::new();
+
+        {
+            let mut printer = TtyTablePrinter::new(&mut output, 6, 1, 14);
+            printer.complete(&rows, 1200).expect("tty complete");
+        }
+
+        let rendered = String::from_utf8(output).expect("utf8");
+        assert!(rendered.contains("----"));
     }
 
     #[test]
@@ -361,10 +546,10 @@ mod tests {
         let mut output = Vec::new();
 
         {
-            let mut printer = TtyTablePrinter::new(&mut output, 6, 14);
+            let mut printer = TtyTablePrinter::new(&mut output, 6, 80, 14);
             printer.start(&rows).expect("tty start");
-            rows[0] = RepoRow::finished("activities".to_string(), "clean".to_string());
-            printer.finish_row(&rows, 0, 0).expect("tty finish");
+            rows[0].mark_finished("clean".to_string());
+            printer.update_row(&rows, 0, 0).expect("tty finish");
         }
 
         let rendered = String::from_utf8(output).expect("utf8");
