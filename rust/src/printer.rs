@@ -231,7 +231,7 @@ impl<W: Write> TtyTablePrinter<W> {
         )
     }
 
-    fn render_frame(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<Vec<usize>> {
+    fn render_frame(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<()> {
         if self.rendered_line_count > 0 {
             queue!(
                 self.writer,
@@ -249,12 +249,10 @@ impl<W: Write> TtyTablePrinter<W> {
         let mut complete = 0usize;
         let mut running = 0usize;
         let mut pending = 0usize;
-        let mut finished_indices = Vec::with_capacity(rows.len());
-        for (idx, row) in rows.iter().enumerate() {
+        for row in rows {
             match row.state {
                 RowState::Finished => {
                     complete += 1;
-                    finished_indices.push(idx);
                 }
                 RowState::Running => running += 1,
                 RowState::Pending => pending += 1,
@@ -282,13 +280,13 @@ impl<W: Write> TtyTablePrinter<W> {
         self.writer.flush()?;
 
         self.rendered_line_count = viewport.end.saturating_sub(viewport.start) + 2;
-        Ok(finished_indices)
+        Ok(())
     }
 }
 
 impl<W: Write> Printer for TtyTablePrinter<W> {
     fn start(&mut self, rows: &[RepoRow]) -> io::Result<()> {
-        self.render_frame(rows, 0).map(|_| ())
+        self.render_frame(rows, 0)
     }
 
     fn update_row(
@@ -305,7 +303,8 @@ impl<W: Write> Printer for TtyTablePrinter<W> {
     }
 
     fn complete(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<Vec<usize>> {
-        self.render_frame(rows, elapsed_ms).map(|_| Vec::new())
+        self.render_frame(rows, elapsed_ms)?;
+        Ok(Vec::new())
     }
 }
 
