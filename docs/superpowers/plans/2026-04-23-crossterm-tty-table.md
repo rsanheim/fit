@@ -13,8 +13,8 @@
 - Non-TTY output remains behaviorally unchanged: same ordered plain-text rows, no ANSI sequences, and existing trace coverage stays green.
 - Execution and rendering are cleanly separated: `runner.rs` owns repo execution and result flow, while printer implementations own formatting and terminal behavior.
 - TTY mode renders a plain-text live table with no header row, alpha-ordered rows, inline `running` placeholders, a footer showing visible slice, complete count, running count, and elapsed time, and the final table remains on screen.
-- TTY behavior is visually verified in a real terminal session using `tmux`, with captured live and final output from real repo roots under `~/src/work` and `~/src/oss`.
-- `script/bench` can benchmark both non-TTY and pseudo-terminal runs so `main` and `crossterm-smart-tty` can be compared for `status` and `pull` in `~/src/work` and `~/src/oss` across multiple runs.
+- TTY behavior is visually verified in a real terminal session using `tmux`, with captured live and final output from real repo roots under `~/work` and `~/src/oss`.
+- `script/bench` can benchmark both non-TTY and pseudo-terminal runs so `main` and `crossterm-smart-tty` can be compared for `status` and `pull` in `~/work` and `~/src/oss` across multiple runs.
 - Final validation includes Rust tests plus the full benchmark matrix and records the results in `docs/dev/benchmarks.md`.
 
 ---
@@ -468,7 +468,7 @@ Run the built binary inside detached `tmux` sessions so live output can be captu
 ```bash
 script/build -t rust
 tmux kill-session -t git-all-tty-work-status 2>/dev/null || true
-tmux new-session -d -s git-all-tty-work-status "cd ~/src/work && /Users/rsanheim/.dx-worktrees/rsanheim/git-all/crossterm-smart-tty/bin/git-all-rust -n 8 status; tmux wait-for -S git-all-tty-work-status-done"
+tmux new-session -d -s git-all-tty-work-status "cd ~/work && /Users/rsanheim/.dx-worktrees/rsanheim/git-all/crossterm-smart-tty/bin/git-all-rust -n 8 status; tmux wait-for -S git-all-tty-work-status-done"
 sleep 1
 tmux capture-pane -pt git-all-tty-work-status > /tmp/git-all-tty-work-status-live.txt
 tmux wait-for git-all-tty-work-status-done
@@ -498,7 +498,7 @@ Check manually:
 - at least one in-flight row displays `running` in the live capture
 - footer includes visible slice, complete count, running count, and elapsed time
 - final capture still shows the final table
-- both `~/src/work` and `~/src/oss` render correctly under a real TTY
+- both `~/work` and `~/src/oss` render correctly under a real TTY
 
 - [ ] **Step 7: Commit the TTY table printer**
 
@@ -603,8 +603,8 @@ Add a TTY benchmarking section to `docs/dev/benchmarks.md`:
 The crossterm renderer is only exercised when stdout is a TTY. Use:
 
 ```bash
-script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/work -c status -n 8 --tty
-script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/work -c pull -n 8 --tty
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c status -n 8 --tty
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c pull -n 8 --tty
 script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/oss -c status -n 8 --tty
 script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/oss -c pull -n 8 --tty
 ```
@@ -618,7 +618,7 @@ Run:
 
 ```bash
 GIT_ALL_BENCH_SELFTEST=1 script/bench git
-script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/work -c status -n 8 --tty --show-output
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c status -n 8 --tty --show-output
 ```
 
 Expected:
@@ -645,8 +645,8 @@ git commit -m "add tty benchmark mode for crossterm runs"
 Run:
 
 ```bash
-script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/work -c status -n 8
-script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/work -c pull -n 8
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c status -n 8
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c pull -n 8
 script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/oss -c status -n 8
 script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/oss -c pull -n 8
 ```
@@ -658,8 +658,8 @@ Expected: hyperfine comparison output for four non-TTY cases.
 Run:
 
 ```bash
-script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/work -c status -n 8 --tty
-script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/work -c pull -n 8 --tty
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c status -n 8 --tty
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c pull -n 8 --tty
 script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/oss -c status -n 8 --tty
 script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/oss -c pull -n 8 --tty
 ```
@@ -672,7 +672,7 @@ Run detached `tmux` sessions for the live `pull` command and capture both the in
 
 ```bash
 tmux kill-session -t git-all-tty-work-pull 2>/dev/null || true
-tmux new-session -d -s git-all-tty-work-pull "cd ~/src/work && /Users/rsanheim/.dx-worktrees/rsanheim/git-all/crossterm-smart-tty/bin/git-all-rust -n 8 pull; tmux wait-for -S git-all-tty-work-pull-done"
+tmux new-session -d -s git-all-tty-work-pull "cd ~/work && /Users/rsanheim/.dx-worktrees/rsanheim/git-all/crossterm-smart-tty/bin/git-all-rust -n 8 pull; tmux wait-for -S git-all-tty-work-pull-done"
 sleep 2
 tmux capture-pane -pt git-all-tty-work-pull > /tmp/git-all-tty-work-pull-live.txt
 tmux wait-for git-all-tty-work-pull-done
@@ -693,7 +693,7 @@ Expected: four captured pane files showing live and final TTY output for `pull` 
 Run:
 
 ```bash
-cd ~/src/work
+cd ~/work
 GIT_ALL_TRACE_FILE=/tmp/git-all-crossterm.trace /Users/rsanheim/.dx-worktrees/rsanheim/git-all/crossterm-smart-tty/bin/git-all-rust -n 8 status >/tmp/git-all-crossterm.stdout
 rg 'phase=summary' /tmp/git-all-crossterm.trace
 ```
@@ -704,10 +704,10 @@ Expected: one summary line containing `first_print_ms`, `delayed_repos`, `max_or
 
 Append a new results section with:
 
-- non-TTY `status` comparison notes for `~/src/work` and `~/src/oss`
-- non-TTY `pull` comparison notes for `~/src/work` and `~/src/oss`
-- TTY `status` comparison notes for `~/src/work` and `~/src/oss`
-- TTY `pull` comparison notes for `~/src/work` and `~/src/oss`
+- non-TTY `status` comparison notes for `~/work` and `~/src/oss`
+- non-TTY `pull` comparison notes for `~/work` and `~/src/oss`
+- TTY `status` comparison notes for `~/work` and `~/src/oss`
+- TTY `pull` comparison notes for `~/work` and `~/src/oss`
 - one trace spot-check summary line
 
 Use this template:
@@ -717,28 +717,28 @@ Use this template:
 
 ### Non-TTY
 
-- `~/src/work status`: `<paste hyperfine summary>`
-- `~/src/work pull`: `<paste hyperfine summary>`
+- `~/work status`: `<paste hyperfine summary>`
+- `~/work pull`: `<paste hyperfine summary>`
 - `~/src/oss status`: `<paste hyperfine summary>`
 - `~/src/oss pull`: `<paste hyperfine summary>`
 
 ### TTY
 
-- `~/src/work status`: `<paste hyperfine summary>`
-- `~/src/work pull`: `<paste hyperfine summary>`
+- `~/work status`: `<paste hyperfine summary>`
+- `~/work pull`: `<paste hyperfine summary>`
 - `~/src/oss status`: `<paste hyperfine summary>`
 - `~/src/oss pull`: `<paste hyperfine summary>`
 
 ### Visual Checks
 
-- `~/src/work status`: `tmux` live/final capture reviewed
+- `~/work status`: `tmux` live/final capture reviewed
 - `~/src/oss status`: `tmux` live/final capture reviewed
-- `~/src/work pull`: `tmux` live/final capture reviewed
+- `~/work pull`: `tmux` live/final capture reviewed
 - `~/src/oss pull`: `tmux` live/final capture reviewed
 
 ### Trace Spot Check
 
-- `status ~/src/work`: `first_print_ms=<...> delayed_repos=<...> max_ordered_wait_ms=<...> total_ms=<...>`
+- `status ~/work`: `first_print_ms=<...> delayed_repos=<...> max_ordered_wait_ms=<...> total_ms=<...>`
 ```
 
 - [ ] **Step 6: Run the full Rust verification one final time**
