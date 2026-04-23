@@ -5,6 +5,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
+use crate::printer::{PlainPrinter, Printer, RepoRow};
 use crate::repo::repo_display_name;
 use crate::trace::{RepoTraceSample, TraceSink};
 
@@ -62,20 +63,6 @@ fn compute_name_width(repos: &[PathBuf], display_root: &Path) -> usize {
 
     let capped = max_len.min(MAX_REPO_NAME_WIDTH_CAP);
     capped.max(MIN_REPO_NAME_WIDTH)
-}
-
-/// Format repo name with fixed width: truncate long names, pad short ones
-fn format_repo_name(name: &str, width: usize) -> String {
-    let display_name = if name.len() > width {
-        if width <= 4 {
-            name.chars().take(width).collect()
-        } else {
-            format!("{}-...", &name[..width - 4])
-        }
-    } else {
-        name.to_string()
-    };
-    format!("[{:<width$}]", display_name, width = width)
 }
 
 /// Execution context holding configuration for running git commands
@@ -220,6 +207,14 @@ where
 
     let name_width = compute_name_width(repos, ctx.display_root());
     let run_started_at = Instant::now();
+    let mut rows: Vec<RepoRow> = repos
+        .iter()
+        .enumerate()
+        .map(|(idx, repo)| RepoRow::running(idx, repo_display_name(repo, ctx.display_root())))
+        .collect();
+    let stdout = std::io::stdout();
+    let mut printer = PlainPrinter::new(stdout.lock(), name_width);
+    printer.start(&rows)?;
 
     let max_workers = ctx.max_connections();
 
@@ -309,7 +304,13 @@ where
 
             while next_to_print < results.len() {
                 if let Some((ref repo_path, ref res, sample)) = results[next_to_print] {
-                    print_result(repo_path, res, formatter, ctx.display_root(), name_width);
+                    let output_text = format_result_output(res, formatter);
+                    rows[next_to_print] = RepoRow::finished(
+                        next_to_print,
+                        rows[next_to_print].repo.clone(),
+                        output_text,
+                    );
+                    printer.finish_row(next_to_print, &rows[next_to_print])?;
                     if let Some(sample) = sample {
                         let printed_ms = run_started_at.elapsed().as_millis();
                         let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
@@ -345,32 +346,25 @@ where
         max_ordered_wait_ms,
         run_started_at.elapsed().as_millis(),
     )?;
+    printer.complete(&rows, run_started_at.elapsed().as_millis())?;
 
     Ok(())
 }
 
-/// Print result for a single repository
-fn print_result(
-    repo_path: &std::path::Path,
+fn format_result_output(
     result: &Result<Output, std::io::Error>,
     formatter: &dyn OutputFormatter,
-    display_root: &std::path::Path,
-    name_width: usize,
-) {
-    let name = repo_display_name(repo_path, display_root);
-    let output_line = match result {
-        Ok(output) => {
-            let formatted = formatter.format(output);
-            format!("{} {}", format_repo_name(&name, name_width), formatted)
-        }
-        Err(e) => format!("{} ERROR: {}", format_repo_name(&name, name_width), e),
-    };
-    println!("{}", output_line);
+) -> String {
+    match result {
+        Ok(output) => formatter.format(output),
+        Err(e) => format!("ERROR: {}", e),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::printer::format_repo_name;
 
     #[test]
     fn test_format_repo_name_short() {

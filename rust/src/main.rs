@@ -8,6 +8,7 @@ use std::os::unix::process::CommandExt;
 
 mod commands;
 mod meta;
+mod printer;
 mod repo;
 mod runner;
 mod trace;
