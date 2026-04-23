@@ -25,6 +25,14 @@ brew tap rsanheim/tap
 brew install git-all
 ```
 
+Build from source and install this checkout globally:
+
+```bash
+script/install -t rust
+export PATH="$HOME/.local/bin:$PATH"
+git-all --help
+```
+
 **Requirements:**
 * macOS only for now (Apple Silicon or Intel) - cross-platform builds coming
 * Git 2.25+ recommended (uses `git -C` for directory switching)
@@ -68,7 +76,7 @@ Inside a git repository, `git-all` acts as a transparent wrapper. `git-all statu
 
 ```bash
 $ git-all meta help
-git-all v0.6.0 (git 2.52.0)
+git-all v0.7.1-rc.1 (git 2.52.0)
 ...
 ```
 

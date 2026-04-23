@@ -97,7 +97,11 @@ main() {
     done
 
     echo
-    echo "Done! Run 'git-all --help' to verify."
+    if [[ ":$PATH:" == *":${INSTALL_DIR}:"* ]]; then
+        echo "Done! Run 'git-all --help' to verify."
+    else
+        echo "Done! Add ${INSTALL_DIR} to your PATH, then run 'git-all --help' to verify."
+    fi
 }
 
 main "$@"

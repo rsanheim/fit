@@ -36,6 +36,9 @@ script/build -t crystal
 script/install -t crystal
 ```
 
+For the Rust build, `script/install -t rust` installs `git-all` to `~/.local/bin/git-all`.
+Make sure `~/.local/bin` is on your `PATH` before invoking `git-all` globally.
+
 ## Usage
 
 ```
@@ -59,7 +62,7 @@ GLOBAL OPTIONS:
 
 ```bash
 [~/src/oss] git-all pull --dry-run
-[git-all v0.6.0] Running in **dry-run mode**, no git commands will be executed.
+[git-all v0.7.1-rc.1] Running in **dry-run mode**, no git commands will be executed.
 git -C ~/src/oss/repo1 pull
 git -C ~/src/oss/repo2 pull
 git -C ~/src/oss/repo3 pull
