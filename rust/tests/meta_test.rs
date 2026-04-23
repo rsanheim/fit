@@ -9,7 +9,10 @@ fn meta_shows_help_with_version() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("git-all v"), "should contain git-all version");
+    assert!(
+        stdout.contains("git-all v"),
+        "should contain git-all version"
+    );
     assert!(stdout.contains("git"), "should contain git version");
     assert!(stdout.contains("Usage:"), "should contain usage info");
 }

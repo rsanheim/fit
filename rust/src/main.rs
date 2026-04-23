@@ -80,17 +80,14 @@ enum Commands {
     External(Vec<String>),
 }
 
-fn command_label(command: &Option<Commands>) -> String {
+fn command_label(command: &Option<Commands>) -> &str {
     match command {
-        Some(Commands::Pull { .. }) => "pull".to_string(),
-        Some(Commands::Fetch { .. }) => "fetch".to_string(),
-        Some(Commands::Status { .. }) => "status".to_string(),
-        Some(Commands::Meta { .. }) => "meta".to_string(),
-        Some(Commands::External(args)) => args
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "external".to_string()),
-        None => "none".to_string(),
+        Some(Commands::Pull { .. }) => "pull",
+        Some(Commands::Fetch { .. }) => "fetch",
+        Some(Commands::Status { .. }) => "status",
+        Some(Commands::Meta { .. }) => "meta",
+        Some(Commands::External(args)) => args.first().map(String::as_str).unwrap_or("external"),
+        None => "none",
     }
 }
 
@@ -135,7 +132,7 @@ fn main() -> Result<()> {
     let scan_started_at = Instant::now();
     let repos = find_git_repos_in(&cwd, cli.scan_depth)?;
     trace.emit_scan(
-        &command_label(&cli.command),
+        command_label(&cli.command),
         &cwd,
         repos.len(),
         cli.workers,

@@ -28,6 +28,32 @@ impl RepoTraceSample {
     }
 }
 
+#[derive(Default)]
+pub struct TraceSummary {
+    pub first_exit_ms: Option<u128>,
+    pub first_print_ms: Option<u128>,
+    pub delayed_repos: usize,
+    pub max_ordered_wait_ms: u128,
+}
+
+impl TraceSummary {
+    pub fn record(&mut self, sample: &RepoTraceSample, printed_ms: u128) {
+        let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
+        self.first_exit_ms = Some(
+            self.first_exit_ms
+                .map_or(sample.exit_ms, |current| current.min(sample.exit_ms)),
+        );
+        self.first_print_ms = Some(
+            self.first_print_ms
+                .map_or(printed_ms, |current| current.min(printed_ms)),
+        );
+        if ordered_wait_ms > 0 {
+            self.delayed_repos += 1;
+        }
+        self.max_ordered_wait_ms = self.max_ordered_wait_ms.max(ordered_wait_ms);
+    }
+}
+
 impl TraceSink {
     pub fn from_env() -> io::Result<Self> {
         let trace_path = std::env::var_os("GIT_ALL_TRACE_FILE")
@@ -60,6 +86,9 @@ impl TraceSink {
         workers: usize,
         scan_ms: u128,
     ) -> io::Result<()> {
+        if !self.enabled() {
+            return Ok(());
+        }
         self.write_line(&format!(
             "git-all-trace phase=scan command={command:?} root={:?} repos={repo_count} workers={workers} scan_ms={scan_ms}",
             root.to_string_lossy()
@@ -73,6 +102,9 @@ impl TraceSink {
         sample: RepoTraceSample,
         printed_ms: u128,
     ) -> io::Result<()> {
+        if !self.enabled() {
+            return Ok(());
+        }
         self.write_line(&format!(
             concat!(
                 "git-all-trace phase=repo idx={idx} repo={repo_name:?} ",
@@ -97,12 +129,12 @@ impl TraceSink {
     pub fn emit_summary(
         &mut self,
         repo_count: usize,
-        first_exit_ms: Option<u128>,
-        first_print_ms: Option<u128>,
-        delayed_repos: usize,
-        max_ordered_wait_ms: u128,
+        summary: &TraceSummary,
         total_ms: u128,
     ) -> io::Result<()> {
+        if !self.enabled() {
+            return Ok(());
+        }
         self.write_line(&format!(
             concat!(
                 "git-all-trace phase=summary repos={repo_count} ",
@@ -110,14 +142,10 @@ impl TraceSink {
                 "delayed_repos={delayed_repos} max_ordered_wait_ms={max_ordered_wait_ms} total_ms={total_ms}"
             ),
             repo_count = repo_count,
-            first_exit_ms = first_exit_ms
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "na".to_string()),
-            first_print_ms = first_print_ms
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "na".to_string()),
-            delayed_repos = delayed_repos,
-            max_ordered_wait_ms = max_ordered_wait_ms,
+            first_exit_ms = optional_ms(summary.first_exit_ms),
+            first_print_ms = optional_ms(summary.first_print_ms),
+            delayed_repos = summary.delayed_repos,
+            max_ordered_wait_ms = summary.max_ordered_wait_ms,
             total_ms = total_ms,
         ))
     }
@@ -134,6 +162,12 @@ impl TraceSink {
     }
 }
 
+fn optional_ms(value: Option<u128>) -> String {
+    value
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "na".to_string())
+}
+
 fn parse_trace_env(value: &str) -> bool {
     !matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -143,7 +177,7 @@ fn parse_trace_env(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_trace_env;
+    use super::*;
 
     #[test]
     fn test_parse_trace_env_true_values() {
@@ -157,5 +191,36 @@ mod tests {
         for value in ["", "0", "false", "FALSE", "off", "no"] {
             assert!(!parse_trace_env(value), "{value} should disable tracing");
         }
+    }
+
+    #[test]
+    fn trace_summary_records_first_and_max_ordered_wait() {
+        let mut summary = TraceSummary::default();
+        summary.record(
+            &RepoTraceSample {
+                exit_ms: 100,
+                ..Default::default()
+            },
+            200,
+        );
+        summary.record(
+            &RepoTraceSample {
+                exit_ms: 50,
+                ..Default::default()
+            },
+            210,
+        );
+        summary.record(
+            &RepoTraceSample {
+                exit_ms: 300,
+                ..Default::default()
+            },
+            300,
+        );
+
+        assert_eq!(summary.first_exit_ms, Some(50));
+        assert_eq!(summary.first_print_ms, Some(200));
+        assert_eq!(summary.delayed_repos, 2);
+        assert_eq!(summary.max_ordered_wait_ms, 160);
     }
 }

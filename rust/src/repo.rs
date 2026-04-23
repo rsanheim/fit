@@ -24,11 +24,9 @@ pub fn parse_scan_depth(value: &str) -> Result<ScanDepth, String> {
         return Ok(ScanDepth::All);
     }
 
-    let depth: usize = normalized.parse().map_err(|_| {
-        format!(
-            "invalid scan depth: {value}. Use a positive integer or \"all\"."
-        )
-    })?;
+    let depth: usize = normalized
+        .parse()
+        .map_err(|_| format!("invalid scan depth: {value}. Use a positive integer or \"all\"."))?;
 
     if depth == 0 {
         return Err("scan depth must be a positive integer or \"all\"".to_string());
@@ -98,9 +96,7 @@ pub fn repo_name(path: &Path) -> String {
 /// Display a repository path relative to the given root when possible.
 pub fn repo_display_name(path: &Path, root: &Path) -> String {
     match path.strip_prefix(root) {
-        Ok(relative) if !relative.as_os_str().is_empty() => {
-            relative.to_string_lossy().to_string()
-        }
+        Ok(relative) if !relative.as_os_str().is_empty() => relative.to_string_lossy().to_string(),
         _ => repo_name(path),
     }
 }
@@ -127,10 +123,7 @@ mod tests {
         let root = PathBuf::from("/tmp/workspace");
         let repo = root.join("nested").join("repo");
         let expected = PathBuf::from("nested").join("repo");
-        assert_eq!(
-            repo_display_name(&repo, &root),
-            expected.to_string_lossy()
-        );
+        assert_eq!(repo_display_name(&repo, &root), expected.to_string_lossy());
     }
 
     #[test]

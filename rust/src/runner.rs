@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use crate::printer::{PlainPrinter, Printer, RepoRow, TtyTablePrinter};
 use crate::repo::repo_display_name;
-use crate::trace::{RepoTraceSample, TraceSink};
+use crate::trace::{RepoTraceSample, TraceSink, TraceSummary};
 
 /// Simple counting semaphore using stdlib primitives.
 /// Allows limiting concurrent operations to N at a time.
@@ -45,6 +45,13 @@ impl Semaphore {
 
 const MIN_REPO_NAME_WIDTH: usize = 4;
 const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
+const DEFAULT_TERMINAL_ROWS: usize = 24;
+
+type RepoResult = (
+    PathBuf,
+    Result<Output, std::io::Error>,
+    Option<RepoTraceSample>,
+);
 
 /// URL scheme to force for git operations
 #[derive(Clone, Copy)]
@@ -55,7 +62,6 @@ pub enum UrlScheme {
     Https,
 }
 
-/// Format repo name with fixed width: truncate long names, pad short ones
 fn compute_name_width(repos: &[PathBuf], display_root: &Path) -> usize {
     let mut max_len = 0usize;
     for repo in repos {
@@ -177,6 +183,13 @@ impl GitCommand {
 /// Trait for formatting command output into one line
 pub trait OutputFormatter: Sync {
     fn format(&self, output: &Output) -> String;
+
+    fn format_result(&self, result: &Result<Output, std::io::Error>) -> String {
+        match result {
+            Ok(output) => self.format(output),
+            Err(e) => format!("ERROR: {}", e),
+        }
+    }
 }
 
 /// Run commands in parallel across all repos with streaming output.
@@ -211,13 +224,14 @@ where
     let run_started_at = Instant::now();
     let mut rows: Vec<RepoRow> = repos
         .iter()
-        .enumerate()
-        .map(|(idx, repo)| RepoRow::running(idx, repo_display_name(repo, ctx.display_root())))
+        .map(|repo| RepoRow::running(repo_display_name(repo, ctx.display_root())))
         .collect();
     let stdout = std::io::stdout();
     let is_tty = stdout.is_tty();
     let terminal_rows = if is_tty {
-        terminal_size().map(|(_, rows)| rows as usize).unwrap_or(24)
+        terminal_size()
+            .map(|(_, rows)| rows as usize)
+            .unwrap_or(DEFAULT_TERMINAL_ROWS)
     } else {
         0
     };
@@ -237,18 +251,9 @@ where
         None
     };
 
-    let mut results: Vec<
-        Option<(
-            PathBuf,
-            Result<Output, std::io::Error>,
-            Option<RepoTraceSample>,
-        )>,
-    > = (0..repos.len()).map(|_| None).collect();
+    let mut results: Vec<Option<RepoResult>> = (0..repos.len()).map(|_| None).collect();
     let mut next_to_print: usize = 0;
-    let mut first_exit_ms: Option<u128> = None;
-    let mut first_print_ms: Option<u128> = None;
-    let mut delayed_repos: usize = 0;
-    let mut max_ordered_wait_ms: u128 = 0;
+    let mut summary = TraceSummary::default();
 
     let (tx, rx) = mpsc::channel();
 
@@ -264,44 +269,32 @@ where
                     sem.acquire();
                 }
 
-                let start_ms = if trace_enabled {
-                    Some(run_started_at.elapsed().as_millis())
-                } else {
-                    None
-                };
+                let start_ms = run_started_at.elapsed().as_millis();
                 let spawn_result = cmd.spawn(url_scheme);
-                let spawn_ms = if trace_enabled {
-                    Some(run_started_at.elapsed().as_millis())
-                } else {
-                    None
-                };
+                let spawn_ms = run_started_at.elapsed().as_millis();
                 let result = match spawn_result {
                     Ok(child) => child.wait_with_output(),
                     Err(err) => Err(err),
                 };
-                let trace_sample = if trace_enabled {
-                    let exit_ms = run_started_at.elapsed().as_millis();
-                    Some(match &result {
-                        Ok(output) => RepoTraceSample {
-                            start_ms: start_ms.expect("trace enabled start_ms"),
-                            spawn_ms: spawn_ms.expect("trace enabled spawn_ms"),
-                            exit_ms,
-                            stdout_bytes: output.stdout.len(),
-                            stderr_bytes: output.stderr.len(),
-                            success: output.status.success(),
-                        },
-                        Err(_) => RepoTraceSample {
-                            start_ms: start_ms.expect("trace enabled start_ms"),
-                            spawn_ms: spawn_ms.expect("trace enabled spawn_ms"),
-                            exit_ms,
-                            stdout_bytes: 0,
-                            stderr_bytes: 0,
-                            success: false,
-                        },
-                    })
-                } else {
-                    None
-                };
+
+                let trace_sample = trace_enabled.then(|| {
+                    let (stdout_bytes, stderr_bytes, success) = match &result {
+                        Ok(output) => (
+                            output.stdout.len(),
+                            output.stderr.len(),
+                            output.status.success(),
+                        ),
+                        Err(_) => (0, 0, false),
+                    };
+                    RepoTraceSample {
+                        start_ms,
+                        spawn_ms,
+                        exit_ms: run_started_at.elapsed().as_millis(),
+                        stdout_bytes,
+                        stderr_bytes,
+                        success,
+                    }
+                });
 
                 if let Some(ref sem) = sem {
                     sem.release();
@@ -316,88 +309,37 @@ where
             results[idx] = Some((repo, result, trace_sample));
 
             while next_to_print < results.len() {
-                if let Some((ref repo_path, ref res, sample)) = results[next_to_print] {
-                    let output_text = format_result_output(res, formatter);
-                    rows[next_to_print] = RepoRow::finished(
-                        next_to_print,
-                        rows[next_to_print].repo.clone(),
-                        output_text,
-                    );
-                    printer.finish_row(next_to_print, &rows[next_to_print])?;
-                    if let Some(sample) = sample {
-                        let printed_ms = run_started_at.elapsed().as_millis();
-                        let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
-                        let repo_name = repo_display_name(repo_path, ctx.display_root());
-                        first_exit_ms = Some(
-                            first_exit_ms
-                                .map_or(sample.exit_ms, |current| current.min(sample.exit_ms)),
-                        );
-                        first_print_ms = Some(
-                            first_print_ms.map_or(printed_ms, |current| current.min(printed_ms)),
-                        );
-                        if ordered_wait_ms > 0 {
-                            delayed_repos += 1;
-                        }
-                        max_ordered_wait_ms = max_ordered_wait_ms.max(ordered_wait_ms);
-                        ctx.trace_mut()
-                            .emit_repo(next_to_print, &repo_name, sample, printed_ms)?;
-                    }
-                    next_to_print += 1;
-                } else {
+                let Some((repo_path, res, sample)) = &results[next_to_print] else {
                     break;
+                };
+                let output_text = formatter.format_result(res);
+                let name = std::mem::take(&mut rows[next_to_print].repo);
+                rows[next_to_print] = RepoRow::finished(name, output_text);
+                let elapsed_ms = run_started_at.elapsed().as_millis();
+                printer.finish_row(&rows, next_to_print, elapsed_ms)?;
+                if let Some(sample) = sample {
+                    summary.record(sample, elapsed_ms);
+                    let repo_name = repo_display_name(repo_path, ctx.display_root());
+                    ctx.trace_mut()
+                        .emit_repo(next_to_print, &repo_name, *sample, elapsed_ms)?;
                 }
+                next_to_print += 1;
             }
         }
         Ok(())
     })?;
 
-    ctx.trace_mut().emit_summary(
-        repos.len(),
-        first_exit_ms,
-        first_print_ms,
-        delayed_repos,
-        max_ordered_wait_ms,
-        run_started_at.elapsed().as_millis(),
-    )?;
-    printer.complete(&rows, run_started_at.elapsed().as_millis())?;
+    let total_ms = run_started_at.elapsed().as_millis();
+    ctx.trace_mut()
+        .emit_summary(repos.len(), &summary, total_ms)?;
+    printer.complete(&rows, total_ms)?;
 
     Ok(())
-}
-
-fn format_result_output(
-    result: &Result<Output, std::io::Error>,
-    formatter: &dyn OutputFormatter,
-) -> String {
-    match result {
-        Ok(output) => formatter.format(output),
-        Err(e) => format!("ERROR: {}", e),
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::printer::format_repo_name;
-
-    #[test]
-    fn test_format_repo_name_short() {
-        let result = format_repo_name("my-repo", 24);
-        assert_eq!(result, "[my-repo                 ]");
-        assert_eq!(result.len(), 26); // [ + 24 + ]
-    }
-
-    #[test]
-    fn test_format_repo_name_exact_length() {
-        let result = format_repo_name("exactly-twenty-four-chr", 24);
-        assert_eq!(result.len(), 26);
-    }
-
-    #[test]
-    fn test_format_repo_name_truncated() {
-        let result = format_repo_name("this-is-a-very-long-repository-name", 24);
-        assert_eq!(result, "[this-is-a-very-long--...]");
-        assert_eq!(result.len(), 26);
-    }
 
     #[test]
     fn test_compute_name_width_caps_and_min() {
