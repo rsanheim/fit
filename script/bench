@@ -8,6 +8,7 @@ WARMUP=2
 MIN_RUNS=5
 BENCH_DIR=""
 HYPERFINE_OPTS=()
+TTY_MODE="0"
 
 # Subcommand-specific defaults
 CMD="status"
@@ -27,6 +28,22 @@ run_build_cmd() {
         mise exec -C "${GIT_ALL_ROOT}" -- bash -c "cd \"$workdir\" && $build_cmd"
     else
         (cd "$workdir" && eval "$build_cmd")
+    fi
+}
+
+build_bench_cmd() {
+    local bin="$1"
+    local cmd="$2"
+    local workers="$3"
+    local dir="$4"
+
+    local base="$bin -n $workers $cmd"
+    [[ -n "$dir" ]] && base="cd '$dir' && $base"
+
+    if [[ "$TTY_MODE" == "1" ]]; then
+        printf "/usr/bin/script -q /dev/null bash -lc %q" "$base"
+    else
+        printf "%s" "$base"
     fi
 }
 
@@ -66,6 +83,7 @@ git Options:
   -t, --target REF        Target git ref (default: HEAD)
   -c, --cmd CMD           Git command to benchmark (default: status)
   -n, --workers N         Number of workers (default: 8)
+  --tty                   Run benchmark commands under a pseudo-terminal
 
 Examples:
   bench compare -d ~/src                # compare impls in ~/src directory
@@ -138,6 +156,7 @@ Options:
   -t, --target REF      Target git ref (default: HEAD)
   -c, --cmd CMD         Git command to benchmark (default: status)
   -n, --workers N       Number of workers (default: 8)
+  --tty                 Run benchmark commands under a pseudo-terminal
 
 Global options (-d, -w, -m, -i, --show-output) also apply.
 
@@ -272,6 +291,7 @@ cmd_git() {
             -t|--target) TARGET_REF="$2"; shift 2 ;;
             -c|--cmd) CMD="$2"; shift 2 ;;
             -n|--workers) WORKERS="$2"; shift 2 ;;
+            --tty) TTY_MODE="1"; shift ;;
             -d|--dir|-w|--warmup|-m|--min-runs)
                 parse_global_opt_with_arg "$1" "$2"; shift 2 ;;
             -i|--ignore-failure|--show-output)
@@ -411,10 +431,10 @@ cmd_git() {
     echo "Target:   $TARGET_NAME ($TARGET_SHA)"
     echo
 
-    local BASELINE_CMD="$BASELINE_BIN -n $WORKERS $CMD"
-    local TARGET_CMD="$TARGET_BIN -n $WORKERS $CMD"
-    [[ -n "$BENCH_DIR" ]] && BASELINE_CMD="cd '$BENCH_DIR' && $BASELINE_CMD"
-    [[ -n "$BENCH_DIR" ]] && TARGET_CMD="cd '$BENCH_DIR' && $TARGET_CMD"
+    local BASELINE_CMD
+    local TARGET_CMD
+    BASELINE_CMD=$(build_bench_cmd "$BASELINE_BIN" "$CMD" "$WORKERS" "$BENCH_DIR")
+    TARGET_CMD=$(build_bench_cmd "$TARGET_BIN" "$CMD" "$WORKERS" "$BENCH_DIR")
 
     hyperfine \
         --warmup "$WARMUP" \
@@ -472,6 +492,12 @@ cmd_suite() {
         echo
     done
 }
+
+if [[ "${GIT_ALL_BENCH_SELFTEST:-}" == "1" ]]; then
+    TTY_MODE="1"
+    build_bench_cmd "/tmp/git-all-rust-main-abc123" "status" "8" "/tmp/work"
+    exit 0
+fi
 
 main() {
     # Parse global options

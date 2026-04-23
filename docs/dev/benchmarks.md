@@ -61,3 +61,17 @@ Default worker count: **8**
 This provides the best balance:
 * Near-optimal for network operations (pull, fetch)
 * Acceptable for local operations (status is ~1s vs 0.85s optimal)
+
+## TTY Benchmarking
+
+The crossterm renderer is only exercised when stdout is a TTY. Use `script/bench git --tty`
+to wrap benchmarked commands in a pseudo-terminal:
+
+```bash
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c status -n 8 --tty
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/work -c pull -n 8 --tty
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/oss -c status -n 8 --tty
+script/bench git -I rust -b main -t crossterm-smart-tty -d ~/src/oss -c pull -n 8 --tty
+```
+
+Run the same matrix without `--tty` to verify non-TTY behavior remains stable.
