@@ -81,6 +81,7 @@ pub struct Viewport {
 }
 
 impl Viewport {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn for_rows(rows: &[RepoRow], height: usize) -> Self {
         let height = height.max(1);
         let anchor = rows
@@ -88,6 +89,30 @@ impl Viewport {
             .position(|row| row.state != RowState::Finished)
             .unwrap_or(rows.len().saturating_sub(height));
         let start = anchor.min(rows.len().saturating_sub(height));
+        let end = (start + height).min(rows.len());
+        Self { start, end }
+    }
+
+    pub fn with_page_steps(
+        rows: &[RepoRow],
+        height: usize,
+        previous_start: usize,
+        desired_overlap: usize,
+    ) -> Self {
+        let height = height.max(1);
+        let max_start = rows.len().saturating_sub(height);
+        let previous_start = previous_start.min(max_start);
+        let Some(anchor) = rows.iter().position(|row| row.state != RowState::Finished) else {
+            let end = (previous_start + height).min(rows.len());
+            return Self {
+                start: previous_start,
+                end,
+            };
+        };
+        let overlap = desired_overlap.min(height.saturating_sub(1));
+        let step = height.saturating_sub(overlap).max(1);
+        let start = ((anchor / step) * step).min(max_start);
+
         let end = (start + height).min(rows.len());
         Self { start, end }
     }
@@ -190,10 +215,13 @@ pub struct TtyTablePrinter<W: Write> {
     terminal_rows: usize,
     terminal_columns: usize,
     repo_width: usize,
+    viewport_start: usize,
     rendered_line_count: usize,
 }
 
 impl<W: Write> TtyTablePrinter<W> {
+    const VIEWPORT_OVERLAP: usize = 2;
+
     pub fn new(
         writer: W,
         terminal_rows: usize,
@@ -205,6 +233,7 @@ impl<W: Write> TtyTablePrinter<W> {
             terminal_rows,
             terminal_columns,
             repo_width,
+            viewport_start: 0,
             rendered_line_count: 0,
         }
     }
@@ -240,7 +269,13 @@ impl<W: Write> TtyTablePrinter<W> {
             )?;
         }
 
-        let viewport = Viewport::for_rows(rows, self.visible_height());
+        let viewport = Viewport::with_page_steps(
+            rows,
+            self.visible_height(),
+            self.viewport_start,
+            Self::VIEWPORT_OVERLAP,
+        );
+        self.viewport_start = viewport.start;
         for row in &rows[viewport.start..viewport.end] {
             queue!(self.writer, MoveToColumn(0), Clear(ClearType::CurrentLine))?;
             writeln!(self.writer, "{}", self.render_row(row))?;
@@ -440,6 +475,57 @@ mod tests {
 
         assert_eq!(viewport.start, 1);
         assert_eq!(viewport.end, 4);
+    }
+
+    #[test]
+    fn viewport_page_step_keeps_first_page_until_anchor_reaches_next_page() {
+        let rows = vec![
+            RepoRow::finished("activities".to_string(), "clean".to_string()),
+            RepoRow::pending("agentic-dev".to_string()),
+            RepoRow::pending("amion-api".to_string()),
+            RepoRow::pending("api-gateway".to_string()),
+            RepoRow::pending("billing".to_string()),
+        ];
+
+        let viewport = Viewport::with_page_steps(&rows, 3, 0, 1);
+
+        assert_eq!(viewport.start, 0);
+        assert_eq!(viewport.end, 3);
+    }
+
+    #[test]
+    fn viewport_page_step_advances_by_page_minus_overlap() {
+        let rows = vec![
+            RepoRow::finished("activities".to_string(), "clean".to_string()),
+            RepoRow::finished("agentic-dev".to_string(), "clean".to_string()),
+            RepoRow::finished("amion-api".to_string(), "clean".to_string()),
+            RepoRow::finished("api-gateway".to_string(), "clean".to_string()),
+            RepoRow::pending("billing".to_string()),
+            RepoRow::pending("campaigns".to_string()),
+            RepoRow::pending("curative".to_string()),
+            RepoRow::pending("data-platform".to_string()),
+        ];
+
+        let viewport = Viewport::with_page_steps(&rows, 3, 0, 1);
+
+        assert_eq!(viewport.start, 4);
+        assert_eq!(viewport.end, 7);
+    }
+
+    #[test]
+    fn viewport_page_step_keeps_final_page_stable_when_all_rows_finish() {
+        let rows = vec![
+            RepoRow::finished("activities".to_string(), "clean".to_string()),
+            RepoRow::finished("agentic-dev".to_string(), "clean".to_string()),
+            RepoRow::finished("amion-api".to_string(), "clean".to_string()),
+            RepoRow::finished("api-gateway".to_string(), "clean".to_string()),
+            RepoRow::finished("billing".to_string(), "clean".to_string()),
+        ];
+
+        let viewport = Viewport::with_page_steps(&rows, 3, 2, 1);
+
+        assert_eq!(viewport.start, 2);
+        assert_eq!(viewport.end, 5);
     }
 
     #[test]
