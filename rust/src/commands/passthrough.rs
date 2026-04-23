@@ -29,7 +29,7 @@ impl OutputFormatter for PassthroughFormatter {
     }
 }
 
-pub fn run(ctx: &ExecutionContext, repos: &[PathBuf], args: &[String]) -> Result<()> {
+pub fn run(ctx: &mut ExecutionContext, repos: &[PathBuf], args: &[String]) -> Result<()> {
     if args.is_empty() {
         anyhow::bail!("No git command specified");
     }

@@ -74,6 +74,15 @@ cargo test                   # run directly in rust/
 script/install -t rust       # installs release build as ~/.local/bin/git-all
 ```
 
+### Worktrees
+Use `dx worktree` / `dx wt` for worktree management in this repo rather than raw `git worktree` commands.
+
+`dx` stores worktrees under:
+
+```bash
+~/.dx-worktrees/[owner]/[repo]/[worktree-name]
+```
+
 ## Development Tools
 
 * `mise` for tool/dependency management

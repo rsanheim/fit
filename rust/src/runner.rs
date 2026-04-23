@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Instant;
 
 use crate::repo::repo_display_name;
+use crate::trace::{RepoTraceSample, TraceSink};
 
 /// Simple counting semaphore using stdlib primitives.
 /// Allows limiting concurrent operations to N at a time.
@@ -41,6 +43,10 @@ impl Semaphore {
 const MIN_REPO_NAME_WIDTH: usize = 4;
 const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
 
+fn compute_repo_id_width(repo_count: usize) -> usize {
+    repo_count.max(1).to_string().len().max(3)
+}
+
 /// URL scheme to force for git operations
 #[derive(Clone, Copy)]
 pub enum UrlScheme {
@@ -62,8 +68,7 @@ fn compute_name_width(repos: &[PathBuf], display_root: &Path) -> usize {
     capped.max(MIN_REPO_NAME_WIDTH)
 }
 
-/// Format repo name with fixed width: truncate long names, pad short ones
-fn format_repo_name(name: &str, width: usize) -> String {
+fn truncate_repo_name(name: &str, width: usize) -> String {
     let display_name = if name.len() > width {
         if width <= 4 {
             name.chars().take(width).collect()
@@ -73,7 +78,25 @@ fn format_repo_name(name: &str, width: usize) -> String {
     } else {
         name.to_string()
     };
+    display_name
+}
+
+/// Format repo name with fixed width: truncate long names, pad short ones
+#[cfg(test)]
+fn format_repo_name(name: &str, width: usize) -> String {
+    let display_name = truncate_repo_name(name, width);
     format!("[{:<width$}]", display_name, width = width)
+}
+
+fn format_repo_label(display_idx: usize, name: &str, id_width: usize, name_width: usize) -> String {
+    let display_name = truncate_repo_name(name, name_width);
+    format!(
+        "[{display_idx:0id_width$} {display_name:<name_width$}]",
+        display_idx = display_idx,
+        id_width = id_width,
+        display_name = display_name,
+        name_width = name_width
+    )
 }
 
 /// Execution context holding configuration for running git commands
@@ -82,6 +105,7 @@ pub struct ExecutionContext {
     url_scheme: Option<UrlScheme>,
     max_connections: usize,
     display_root: PathBuf,
+    trace: TraceSink,
 }
 
 impl ExecutionContext {
@@ -90,12 +114,14 @@ impl ExecutionContext {
         url_scheme: Option<UrlScheme>,
         max_connections: usize,
         display_root: PathBuf,
+        trace: TraceSink,
     ) -> Self {
         Self {
             dry_run,
             url_scheme,
             max_connections,
             display_root,
+            trace,
         }
     }
 
@@ -113,6 +139,14 @@ impl ExecutionContext {
 
     pub fn display_root(&self) -> &std::path::Path {
         &self.display_root
+    }
+
+    pub fn trace_enabled(&self) -> bool {
+        self.trace.enabled()
+    }
+
+    pub fn trace_mut(&mut self) -> &mut TraceSink {
+        &mut self.trace
     }
 }
 
@@ -179,14 +213,13 @@ pub trait OutputFormatter: Sync {
 
 /// Run commands in parallel across all repos with streaming output.
 ///
-/// Results are printed in alphabetical order (repos are pre-sorted) as soon as
-/// contiguous results are available. Uses head-of-line blocking: if repo "aaa"
-/// is slow, "bbb" and "ccc" won't print until "aaa" completes.
+/// Repos are discovered and sorted deterministically up front. Results are then
+/// printed in completion order with stable repo IDs derived from that sorted list.
 ///
 /// Uses thread-per-process pattern with `wait_with_output()` which is deadlock-safe
 /// (stdlib internally spawns threads to drain stdout/stderr concurrently).
 pub fn run_parallel<F>(
-    ctx: &ExecutionContext,
+    ctx: &mut ExecutionContext,
     repos: &[PathBuf],
     build_command: F,
     formatter: &dyn OutputFormatter,
@@ -195,6 +228,7 @@ where
     F: Fn(&PathBuf) -> GitCommand + Sync,
 {
     let url_scheme = ctx.url_scheme();
+    let trace_enabled = ctx.trace_enabled();
 
     if ctx.is_dry_run() {
         for repo in repos {
@@ -205,6 +239,8 @@ where
     }
 
     let name_width = compute_name_width(repos, ctx.display_root());
+    let repo_id_width = compute_repo_id_width(repos.len());
+    let run_started_at = Instant::now();
 
     let max_workers = ctx.max_connections();
 
@@ -214,13 +250,14 @@ where
         None
     };
 
-    let mut results: Vec<Option<(PathBuf, Result<Output, std::io::Error>)>> =
-        (0..repos.len()).map(|_| None).collect();
-    let mut next_to_print: usize = 0;
+    let mut first_exit_ms: Option<u128> = None;
+    let mut first_print_ms: Option<u128> = None;
+    let mut delayed_repos: usize = 0;
+    let mut max_ordered_wait_ms: u128 = 0;
 
     let (tx, rx) = mpsc::channel();
 
-    std::thread::scope(|s| {
+    std::thread::scope(|s| -> Result<()> {
         for (idx, repo) in repos.iter().enumerate() {
             let tx = tx.clone();
             let cmd = build_command(repo);
@@ -232,55 +269,115 @@ where
                     sem.acquire();
                 }
 
-                let result = cmd.spawn(url_scheme).and_then(|c| c.wait_with_output());
+                let start_ms = if trace_enabled {
+                    Some(run_started_at.elapsed().as_millis())
+                } else {
+                    None
+                };
+                let spawn_result = cmd.spawn(url_scheme);
+                let spawn_ms = if trace_enabled {
+                    Some(run_started_at.elapsed().as_millis())
+                } else {
+                    None
+                };
+                let result = match spawn_result {
+                    Ok(child) => child.wait_with_output(),
+                    Err(err) => Err(err),
+                };
+                let trace_sample = if trace_enabled {
+                    let exit_ms = run_started_at.elapsed().as_millis();
+                    Some(match &result {
+                        Ok(output) => RepoTraceSample {
+                            start_ms: start_ms.expect("trace enabled start_ms"),
+                            spawn_ms: spawn_ms.expect("trace enabled spawn_ms"),
+                            exit_ms,
+                            stdout_bytes: output.stdout.len(),
+                            stderr_bytes: output.stderr.len(),
+                            success: output.status.success(),
+                        },
+                        Err(_) => RepoTraceSample {
+                            start_ms: start_ms.expect("trace enabled start_ms"),
+                            spawn_ms: spawn_ms.expect("trace enabled spawn_ms"),
+                            exit_ms,
+                            stdout_bytes: 0,
+                            stderr_bytes: 0,
+                            success: false,
+                        },
+                    })
+                } else {
+                    None
+                };
 
                 if let Some(ref sem) = sem {
                     sem.release();
                 }
 
-                let _ = tx.send((idx, repo, result));
+                let _ = tx.send((idx, repo, result, trace_sample));
             });
         }
         drop(tx);
 
-        for (idx, repo, result) in rx {
-            results[idx] = Some((repo, result));
+        for (idx, repo, result, trace_sample) in rx {
+            print_result(
+                idx,
+                repo.as_path(),
+                &result,
+                formatter,
+                ctx.display_root(),
+                repo_id_width,
+                name_width,
+            );
 
-            while next_to_print < results.len() {
-                if let Some((ref repo_path, ref res)) = results[next_to_print] {
-                    print_result(
-                        repo_path,
-                        res,
-                        formatter,
-                        ctx.display_root(),
-                        name_width,
-                    );
-                    next_to_print += 1;
-                } else {
-                    break;
+            if let Some(sample) = trace_sample {
+                let printed_ms = run_started_at.elapsed().as_millis();
+                let ordered_wait_ms = sample.ordered_wait_ms(printed_ms);
+                let repo_name = repo_display_name(&repo, ctx.display_root());
+                first_exit_ms = Some(
+                    first_exit_ms.map_or(sample.exit_ms, |current| current.min(sample.exit_ms)),
+                );
+                first_print_ms =
+                    Some(first_print_ms.map_or(printed_ms, |current| current.min(printed_ms)));
+                if ordered_wait_ms > 0 {
+                    delayed_repos += 1;
                 }
+                max_ordered_wait_ms = max_ordered_wait_ms.max(ordered_wait_ms);
+                ctx.trace_mut()
+                    .emit_repo(idx, &repo_name, sample, printed_ms)?;
             }
         }
-    });
+        Ok(())
+    })?;
+
+    ctx.trace_mut().emit_summary(
+        repos.len(),
+        first_exit_ms,
+        first_print_ms,
+        delayed_repos,
+        max_ordered_wait_ms,
+        run_started_at.elapsed().as_millis(),
+    )?;
 
     Ok(())
 }
 
 /// Print result for a single repository
 fn print_result(
+    repo_idx: usize,
     repo_path: &std::path::Path,
     result: &Result<Output, std::io::Error>,
     formatter: &dyn OutputFormatter,
     display_root: &std::path::Path,
+    repo_id_width: usize,
     name_width: usize,
 ) {
     let name = repo_display_name(repo_path, display_root);
+    let label = format_repo_label(repo_idx + 1, &name, repo_id_width, name_width);
     let output_line = match result {
         Ok(output) => {
             let formatted = formatter.format(output);
-            format!("{} {}", format_repo_name(&name, name_width), formatted)
+            format!("{} {}", label, formatted)
         }
-        Err(e) => format!("{} ERROR: {}", format_repo_name(&name, name_width), e),
+        Err(e) => format!("{} ERROR: {}", label, e),
     };
     println!("{}", output_line);
 }
@@ -323,6 +420,19 @@ mod tests {
         let tiny = vec![root.join("a")];
         let tiny_width = compute_name_width(&tiny, &root);
         assert_eq!(tiny_width, MIN_REPO_NAME_WIDTH);
+    }
+
+    #[test]
+    fn test_compute_repo_id_width_minimum() {
+        assert_eq!(compute_repo_id_width(1), 3);
+        assert_eq!(compute_repo_id_width(98), 3);
+        assert_eq!(compute_repo_id_width(1234), 4);
+    }
+
+    #[test]
+    fn test_format_repo_label_includes_stable_id() {
+        let result = format_repo_label(2, "agentic-dev", 3, 12);
+        assert_eq!(result, "[002 agentic-dev ]");
     }
 
     /// Test that large output (>64KB) doesn't cause pipe buffer deadlock.

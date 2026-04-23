@@ -78,7 +78,7 @@ impl OutputFormatter for StatusFormatter {
     }
 }
 
-pub fn run(ctx: &ExecutionContext, repos: &[PathBuf], extra_args: &[String]) -> Result<()> {
+pub fn run(ctx: &mut ExecutionContext, repos: &[PathBuf], extra_args: &[String]) -> Result<()> {
     let formatter = StatusFormatter;
 
     run_parallel(
