@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::process::Output;
 
-use crate::runner::{run_parallel, ExecutionContext, GitCommand, OutputFormatter};
+use crate::runner::{ExecutionContext, GitCommand, OutputFormatter, run_parallel};
 
 struct FetchFormatter;
 
@@ -16,7 +16,9 @@ impl OutputFormatter for FetchFormatter {
         }
 
         let has_output = stdout.lines().any(|l| !l.trim().is_empty())
-            || stderr.lines().any(|l| !l.trim().is_empty() && !l.starts_with("From"));
+            || stderr
+                .lines()
+                .any(|l| !l.trim().is_empty() && !l.starts_with("From"));
 
         if !has_output {
             return "no new commits".to_string();
@@ -26,16 +28,28 @@ impl OutputFormatter for FetchFormatter {
             .lines()
             .filter(|l| l.contains("->") || l.contains("[new"))
             .fold((0, 0), |(b, t), l| {
-                if l.contains("[new tag]") { (b, t + 1) } else { (b + 1, t) }
+                if l.contains("[new tag]") {
+                    (b, t + 1)
+                } else {
+                    (b + 1, t)
+                }
             });
 
         if branch_count > 0 || tag_count > 0 {
             let mut parts = Vec::new();
             if branch_count > 0 {
-                parts.push(format!("{} branch{}", branch_count, if branch_count == 1 { "" } else { "es" }));
+                parts.push(format!(
+                    "{} branch{}",
+                    branch_count,
+                    if branch_count == 1 { "" } else { "es" }
+                ));
             }
             if tag_count > 0 {
-                parts.push(format!("{} tag{}", tag_count, if tag_count == 1 { "" } else { "s" }));
+                parts.push(format!(
+                    "{} tag{}",
+                    tag_count,
+                    if tag_count == 1 { "" } else { "s" }
+                ));
             }
             return format!("{} updated", parts.join(", "));
         }
@@ -44,7 +58,7 @@ impl OutputFormatter for FetchFormatter {
     }
 }
 
-pub fn run(ctx: &ExecutionContext, repos: &[PathBuf], extra_args: &[String]) -> Result<()> {
+pub fn run(ctx: &mut ExecutionContext, repos: &[PathBuf], extra_args: &[String]) -> Result<()> {
     let formatter = FetchFormatter;
 
     run_parallel(
