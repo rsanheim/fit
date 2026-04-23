@@ -37,8 +37,10 @@ impl Semaphore {
 
     /// Release a permit, waking one waiting thread.
     fn release(&self) {
-        let mut count = self.count.lock().unwrap();
-        *count += 1;
+        {
+            let mut count = self.count.lock().unwrap();
+            *count += 1;
+        }
         self.cond.notify_one();
     }
 }
@@ -48,7 +50,8 @@ const MAX_REPO_NAME_WIDTH_CAP: usize = 48;
 const DEFAULT_TERMINAL_COLUMNS: usize = 80;
 const DEFAULT_TERMINAL_ROWS: usize = 24;
 
-type RepoCompletion = (PathBuf, Option<RepoTraceSample>);
+/// Trace sample for a completed repo (`None` when `GIT_ALL_TRACE` is off).
+type RepoCompletion = Option<RepoTraceSample>;
 
 enum RepoEvent {
     Started {
@@ -56,7 +59,6 @@ enum RepoEvent {
     },
     Completed {
         idx: usize,
-        repo: PathBuf,
         result: Result<Output, std::io::Error>,
         trace_sample: Option<RepoTraceSample>,
     },
@@ -203,18 +205,19 @@ pub trait OutputFormatter: Sync {
 
 fn emit_traces_for_printed_rows(
     ctx: &mut ExecutionContext,
+    repos: &[PathBuf],
     completions: &[Option<RepoCompletion>],
     printed_indices: &[usize],
     printed_ms: u128,
     summary: &mut TraceSummary,
 ) -> Result<()> {
     for idx in printed_indices {
-        let Some((repo_path, sample)) = &completions[*idx] else {
+        let Some(maybe_sample) = &completions[*idx] else {
             continue;
         };
-        if let Some(sample) = sample {
+        if let Some(sample) = maybe_sample {
             summary.record(sample, printed_ms);
-            let repo_name = repo_display_name(repo_path, ctx.display_root());
+            let repo_name = repo_display_name(&repos[*idx], ctx.display_root());
             ctx.trace_mut()
                 .emit_repo(*idx, &repo_name, *sample, printed_ms)?;
         }
@@ -222,14 +225,16 @@ fn emit_traces_for_printed_rows(
     Ok(())
 }
 
-/// Run commands in parallel across all repos with streaming output.
+/// Run commands in parallel across all repos with streaming execution events.
 ///
-/// Results are printed in alphabetical order (repos are pre-sorted) as soon as
-/// contiguous results are available. Uses head-of-line blocking: if repo "aaa"
-/// is slow, "bbb" and "ccc" won't print until "aaa" completes.
+/// Repos are pre-sorted alphabetically. The runner emits `Completed` for every
+/// repo; when output is a TTY it also emits `Started` so the live table can show
+/// running state. Printers decide how to render:
+/// - TTY output updates rows in place immediately as repos start and finish
+/// - non-TTY output prints only final rows, preserving alphabetical order
 ///
-/// Uses thread-per-process pattern with `wait_with_output()` which is deadlock-safe
-/// (stdlib internally spawns threads to drain stdout/stderr concurrently).
+/// Uses a thread-per-process pattern with `wait_with_output()`, which is
+/// deadlock-safe because stdlib drains stdout/stderr concurrently.
 pub fn run_parallel<F>(
     ctx: &mut ExecutionContext,
     repos: &[PathBuf],
@@ -291,20 +296,22 @@ where
 
     let (tx, rx) = mpsc::channel();
 
+    let build_git_cmd = &build_command;
     std::thread::scope(|s| -> Result<()> {
-        for (idx, repo) in repos.iter().enumerate() {
+        for (idx, _) in repos.iter().enumerate() {
             let tx = tx.clone();
-            let cmd = build_command(repo);
-            let repo = repo.clone();
             let sem = semaphore.clone();
 
             s.spawn(move || {
                 if let Some(ref sem) = sem {
                     sem.acquire();
                 }
-                let _ = tx.send(RepoEvent::Started { idx });
+                if is_tty {
+                    let _ = tx.send(RepoEvent::Started { idx });
+                }
 
                 let start_ms = run_started_at.elapsed().as_millis();
+                let cmd = build_git_cmd(&repos[idx]);
                 let spawn_result = cmd.spawn(url_scheme);
                 let spawn_ms = run_started_at.elapsed().as_millis();
                 let result = match spawn_result {
@@ -337,7 +344,6 @@ where
 
                 let _ = tx.send(RepoEvent::Completed {
                     idx,
-                    repo,
                     result,
                     trace_sample,
                 });
@@ -354,16 +360,16 @@ where
                 }
                 RepoEvent::Completed {
                     idx,
-                    repo,
                     result,
                     trace_sample,
                 } => {
                     rows[idx].mark_finished(formatter.format_result(&result));
-                    completions[idx] = Some((repo, trace_sample));
+                    completions[idx] = Some(trace_sample);
                     let elapsed_ms = run_started_at.elapsed().as_millis();
                     let printed = printer.update_row(&rows, idx, elapsed_ms)?;
                     emit_traces_for_printed_rows(
                         ctx,
+                        repos,
                         &completions,
                         &printed,
                         elapsed_ms,
@@ -377,7 +383,7 @@ where
 
     let total_ms = run_started_at.elapsed().as_millis();
     let printed = printer.complete(&rows, total_ms)?;
-    emit_traces_for_printed_rows(ctx, &completions, &printed, total_ms, &mut summary)?;
+    emit_traces_for_printed_rows(ctx, repos, &completions, &printed, total_ms, &mut summary)?;
     ctx.trace_mut()
         .emit_summary(repos.len(), &summary, total_ms)?;
 

@@ -246,12 +246,20 @@ impl<W: Write> TtyTablePrinter<W> {
             writeln!(self.writer, "{}", self.render_row(row))?;
         }
 
-        let complete = rows
-            .iter()
-            .filter(|r| r.state == RowState::Finished)
-            .count();
-        let running = rows.iter().filter(|r| r.state == RowState::Running).count();
-        let pending = rows.iter().filter(|r| r.state == RowState::Pending).count();
+        let mut complete = 0usize;
+        let mut running = 0usize;
+        let mut pending = 0usize;
+        let mut finished_indices = Vec::with_capacity(rows.len());
+        for (idx, row) in rows.iter().enumerate() {
+            match row.state {
+                RowState::Finished => {
+                    complete += 1;
+                    finished_indices.push(idx);
+                }
+                RowState::Running => running += 1,
+                RowState::Pending => pending += 1,
+            }
+        }
         let footer = FooterState {
             visible_start: if rows.is_empty() {
                 0
@@ -274,11 +282,7 @@ impl<W: Write> TtyTablePrinter<W> {
         self.writer.flush()?;
 
         self.rendered_line_count = viewport.end.saturating_sub(viewport.start) + 2;
-        Ok(rows
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, row)| (row.state == RowState::Finished).then_some(idx))
-            .collect())
+        Ok(finished_indices)
     }
 }
 
@@ -293,11 +297,11 @@ impl<W: Write> Printer for TtyTablePrinter<W> {
         row_index: usize,
         elapsed_ms: u128,
     ) -> io::Result<Vec<usize>> {
-        self.render_frame(rows, elapsed_ms)
-            .map(|_| match rows[row_index].state {
-                RowState::Finished => vec![row_index],
-                RowState::Pending | RowState::Running => Vec::new(),
-            })
+        self.render_frame(rows, elapsed_ms)?;
+        Ok(match rows[row_index].state {
+            RowState::Finished => vec![row_index],
+            RowState::Pending | RowState::Running => Vec::new(),
+        })
     }
 
     fn complete(&mut self, rows: &[RepoRow], elapsed_ms: u128) -> io::Result<Vec<usize>> {
