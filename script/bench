@@ -473,6 +473,47 @@ cmd_suite() {
     done
 }
 
+if [[ "${GIT_ALL_BENCH_SELFTEST:-}" == "1" ]]; then
+    mapfile -t SELFTEST_IMPLS < <(discover_impl_names)
+    [[ " ${SELFTEST_IMPLS[*]} " == *" gnu-parallel "* ]] || {
+        echo "selftest: expected gnu-parallel implementation discovery" >&2
+        exit 1
+    }
+
+    STATUS_CMD=$(
+        GIT_ALL_GNU_PARALLEL_SELFTEST=1 \
+            "${BIN_DIR}/git-all-gnu-parallel" -n 4 status
+    )
+    [[ "$STATUS_CMD" == *"parallel"* ]] || {
+        echo "selftest: expected GNU Parallel command preview for status" >&2
+        exit 1
+    }
+    [[ "$STATUS_CMD" == *"--no-optional-locks status"* ]] || {
+        echo "selftest: expected status to use --no-optional-locks" >&2
+        exit 1
+    }
+
+    FETCH_CMD=$(
+        GIT_ALL_GNU_PARALLEL_SELFTEST=1 \
+            "${BIN_DIR}/git-all-gnu-parallel" -n 8 fetch
+    )
+    [[ "$FETCH_CMD" == *"parallel"* ]] || {
+        echo "selftest: expected GNU Parallel command preview for fetch" >&2
+        exit 1
+    }
+    [[ "$FETCH_CMD" == *'git -C "{}" fetch'* ]] || {
+        echo "selftest: expected fetch preview to run git -C per repo" >&2
+        exit 1
+    }
+    [[ "$FETCH_CMD" != *"--no-optional-locks fetch"* ]] || {
+        echo "selftest: fetch should not force --no-optional-locks" >&2
+        exit 1
+    }
+
+    echo "selftest: ok"
+    exit 0
+fi
+
 main() {
     # Parse global options
     while [[ $# -gt 0 ]]; do

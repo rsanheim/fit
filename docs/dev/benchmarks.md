@@ -9,6 +9,10 @@ Benchmarks run on macOS with ~90 git repositories, using `hyperfine` with minimu
 * SSH multiplexing enabled (ControlMaster)
 * Rust implementation (`rust`)
 
+## Baseline
+
+`script/bench compare` also benchmarks `bin/git-all-gnu-parallel`, a shell baseline that discovers the same depth-1 repos and runs one `git -C <repo>` command per repository through GNU Parallel. It is intended as a simple comparison point for orchestration overhead, not as a feature-complete implementation.
+
 ## git status
 
 Local filesystem operation - bottleneck is process spawning and filesystem I/O.
