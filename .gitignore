@@ -27,3 +27,6 @@ __pycache__/
 
 # Zensical build output
 site/
+
+# Local Codex/browser scratch output
+.superpowers/

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+workers=8
+
+usage() {
+    cat <<'EOF'
+Usage: git-all-gnu-parallel [-n WORKERS] <git-command> [args...]
+
+Benchmark baseline wrapper that discovers depth-1 repos and runs one
+`git -C <repo>` command per repository through GNU Parallel.
+EOF
+}
+
+join_shell_words() {
+    local out=""
+    local word
+
+    for word in "$@"; do
+        if [[ -n "$out" ]]; then
+            out+=" "
+        fi
+        printf -v out '%s%q' "$out" "$word"
+    done
+
+    printf '%s' "$out"
+}
+
+discover_repos() {
+    local dir
+
+    while IFS= read -r -d '' dir; do
+        if [[ -d "$dir/.git" || -f "$dir/.git" ]]; then
+            printf '%s\0' "$dir"
+        fi
+    done < <(find . -mindepth 1 -maxdepth 1 -type d -print0)
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n|--workers)
+            workers="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+[[ $# -gt 0 ]] || {
+    usage >&2
+    exit 1
+}
+
+git_args=("$@")
+
+git_cmd='git -C "{}"'
+if [[ "${git_args[0]}" == "status" ]]; then
+    git_cmd+=' --no-optional-locks'
+fi
+git_cmd+=" $(join_shell_words "${git_args[@]}")"
+
+if [[ "${GIT_ALL_GNU_PARALLEL_SELFTEST:-}" == "1" ]]; then
+    printf "parallel -0 --will-cite -j %s '%s'\n" "$workers" "$git_cmd"
+    exit 0
+fi
+
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    exec git "${git_args[@]}"
+fi
+
+command -v parallel >/dev/null 2>&1 || {
+    echo "git-all-gnu-parallel: GNU Parallel is required" >&2
+    exit 127
+}
+
+discover_repos | parallel -0 --will-cite -j "$workers" "$git_cmd"

@@ -27,7 +27,7 @@ EOF
 
 list_implementations() {
     echo "Available implementations:"
-    for impl in $(discover_impl_names); do
+    for impl in $(discover_language_impl_names); do
         local dir
         dir=$(get_impl_dir "$impl")
         echo "  $impl  ($dir)"
@@ -102,11 +102,11 @@ main() {
 
     local impls
     if [[ "$TYPE" == "all" ]]; then
-        impls=$(discover_impl_names)
+        impls=$(discover_language_impl_names)
     else
         # Validate type
         local valid=false
-        for impl in $(discover_impl_names); do
+        for impl in $(discover_language_impl_names); do
             if [[ "$impl" == "$TYPE" ]]; then
                 valid=true
                 break
@@ -114,7 +114,7 @@ main() {
         done
         if ! $valid; then
             echo "Unknown type: $TYPE"
-            echo "Available: $(discover_impl_names | tr '\n' ' ')"
+            echo "Available: $(discover_language_impl_names | tr '\n' ' ')"
             exit 1
         fi
         impls="$TYPE"

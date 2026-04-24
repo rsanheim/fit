@@ -109,7 +109,7 @@ main() {
     # Validate type if specified
     if [[ -n "$TYPE" ]]; then
         local valid=false
-        for impl in $(discover_impl_names); do
+        for impl in $(discover_language_impl_names); do
             if [[ "$impl" == "$TYPE" ]]; then
                 valid=true
                 break
@@ -117,7 +117,7 @@ main() {
         done
         if ! $valid; then
             echo "Unknown type: $TYPE"
-            echo "Available: $(discover_impl_names | tr '\n' ' ')"
+            echo "Available: $(discover_language_impl_names | tr '\n' ' ')"
             exit 1
         fi
     fi
@@ -130,7 +130,7 @@ main() {
     if [[ -n "$TYPE" ]]; then
         impls="$TYPE"
     else
-        impls=$(discover_impl_names)
+        impls=$(discover_language_impl_names)
     fi
 
     for impl in $impls; do

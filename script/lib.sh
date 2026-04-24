@@ -30,6 +30,14 @@ discover_impl_dirs() {
     done
 }
 
+# Discover buildable/testable implementation names from source directories.
+discover_language_impl_names() {
+    local dir
+    for dir in $(discover_impl_dirs); do
+        basename "$dir"
+    done
+}
+
 # Get build command for implementation type
 # Usage: get_build_cmd <impl> [dev]
 # If second arg is "dev", returns debug/dev build command
