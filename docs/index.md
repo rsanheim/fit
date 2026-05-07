@@ -60,10 +60,10 @@ GLOBAL OPTIONS:
 
 ```bash
 [~/src/oss] git-all pull --dry-run
-[git-all v0.6.0] Running in **dry-run mode**, no git commands will be executed.
-git -C ~/src/oss/repo1 pull
-git -C ~/src/oss/repo2 pull
-git -C ~/src/oss/repo3 pull
+[git-all v0.7.2-rc.1] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.
+git -c "core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none" -C ~/src/oss/repo1 pull
+git -c "core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none" -C ~/src/oss/repo2 pull
+git -c "core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none" -C ~/src/oss/repo3 pull
 ```
 
 ## SSH Connection Multiplexing
