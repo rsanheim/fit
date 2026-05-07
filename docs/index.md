@@ -53,40 +53,40 @@ GLOBAL OPTIONS:
    --dry-run         Print the exact command for every repo without running it
    --ssh             Force SSH URLs (git@github.com:) for all remotes
    --https           Force HTTPS URLs (https://github.com/) for all remotes
+   --ssh-multiplexing  Enable SSH connection multiplexing (disabled by default)
 ```
 
 ## Example: dry-run mode
 
 ```bash
 [~/src/oss] git-all pull --dry-run
-[git-all v0.6.0] Running in **dry-run mode**, no git commands will be executed.
-git -C ~/src/oss/repo1 pull
-git -C ~/src/oss/repo2 pull
-git -C ~/src/oss/repo3 pull
+[git-all v0.7.2-rc.1] Running in **dry-run mode**, no git commands will be executed. Planned git commands below.
+git -c "core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none" -C ~/src/oss/repo1 pull
+git -c "core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none" -C ~/src/oss/repo2 pull
+git -c "core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none" -C ~/src/oss/repo3 pull
 ```
 
-## Performance: SSH Multiplexing
+## SSH Connection Multiplexing
 
-For network operations (`pull`, `fetch`), SSH connection overhead is significant. Enable SSH multiplexing to reuse connections:
+By default, `git-all` disables SSH `ControlMaster` for every git subprocess it spawns. Specifically, every git invocation runs as if you had passed:
 
-Add to `~/.ssh/config`:
+`git -c "core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none" ...`
 
-```
-Host github.com
-  ControlMaster auto
-  ControlPath ~/.ssh/sockets/%r@%h-%p
-  ControlPersist 8h
+### Why disabled by default
 
-Host *
-  ControlMaster auto
-  ControlPath ~/.ssh/sockets/%r@%h-%p
-  ControlPersist 20m
-```
+When `git-all` fans out N parallel git processes against a single host (typically `github.com`), SSH multiplexing produces two failure modes:
 
-Create the sockets directory:
+* **MaxSessions ceiling.** All channels multiplex over a single SSH connection. OpenSSH's default `MaxSessions` is 10, and GitHub enforces a similar server-side cap. Firing 50 parallel git fetches through one master gives you ~10 truly concurrent + 40 queued, not 50 in parallel.
+* **Cold-start race.** When no master socket exists and N processes fan out simultaneously, they race to create it. Most lose the race and either fall back to their own connection or block briefly waiting for the master to come up.
+
+Disabling multiplexing forces each subprocess to open its own connection, which scales linearly with `--workers`.
+
+### Opting back in
+
+If you have a small number of repos and your workflow benefits from multiplexing, you can re-enable it for a run:
 
 ```bash
-mkdir -p ~/.ssh/sockets && chmod 700 ~/.ssh/sockets
+git-all --ssh-multiplexing pull
 ```
 
-This reduces `git-all pull` time by ~3x by avoiding repeated SSH handshakes.
+This makes `git-all` inherit your `~/.ssh/config` unchanged.

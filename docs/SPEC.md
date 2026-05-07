@@ -1,6 +1,6 @@
 # git-all Specification
 
-Version: 0.2.2
+Version: 0.2.3
 Status: Draft
 
 ## Abstract
@@ -210,6 +210,31 @@ else:
 
 3. Implementations MUST NOT accept `--depth` as an alias for this option.
 
+### 6.5 --ssh-multiplexing / --no-ssh-multiplexing
+
+1. The implementation MUST expose a paired boolean toggle as `--ssh-multiplexing` (enable) and `--no-ssh-multiplexing` (disable). The default behavior MUST be equivalent to `--no-ssh-multiplexing`.
+
+2. When SSH multiplexing is disabled (the default, or when `--no-ssh-multiplexing` is specified), the implementation MUST disable SSH connection multiplexing for every git subprocess it spawns. This MUST be achieved by passing `-c core.sshCommand="ssh -o ControlMaster=no -o ControlPath=none"` to git, or by setting the `GIT_SSH_COMMAND` environment variable to an equivalent value in the subprocess environment.
+
+3. The override MUST be applied to all git invocations (optimized and passthrough alike), regardless of whether the underlying remote uses SSH or HTTPS. The implementation MUST NOT inspect repository remotes to decide whether to apply the override.
+
+4. When `--ssh-multiplexing` is specified, the implementation MUST NOT inject any SSH-related git config or environment variable, so that the user's `~/.ssh/config` and ambient `GIT_SSH_COMMAND` continue to apply unchanged.
+
+5. If both `--ssh-multiplexing` and `--no-ssh-multiplexing` are specified on the same invocation, the last occurrence MUST win.
+
+6. The override, when applied, MUST appear in dry-run output (Section 6.1) as part of the printed command, since dry-run output is built from the same code path as actual execution.
+
+7. Both `ControlMaster=no` and `ControlPath=none` MUST be set together. Setting `ControlMaster=no` alone is insufficient because a `ControlPath` configured in the user's `ssh_config` would still cause the client to attempt to reuse an existing master socket.
+
+#### 6.5.1 Rationale (Non-normative)
+
+When git-all fans out N parallel git processes against a single host (typically `github.com`), SSH connection multiplexing produces two failure modes:
+
+* **MaxSessions ceiling**: All channels multiplex over a single SSH connection. OpenSSH's default `MaxSessions` is 10, and GitHub enforces a similar server-side cap. Firing 50 parallel git fetches through one master yields ~10 concurrent + 40 queued, not 50 truly in parallel.
+* **Cold-start race**: When no master socket exists and N processes fan out simultaneously, they race to create it. Most lose the race and either fall back to their own connection or block briefly waiting for the master to come up — a thundering herd at the start of every run.
+
+Disabling multiplexing forces each subprocess to open its own connection, which scales linearly with `--workers` and avoids both issues. Users with low repo counts who benefit from multiplexing can opt back in with `--ssh-multiplexing`.
+
 ## 7. Output Format
 
 ### 7.1 Output Line Format
@@ -330,6 +355,8 @@ OPTIONS:
     --https
     -n, --workers <N>
     --scan-depth <N|all>
+    --ssh-multiplexing
+    --no-ssh-multiplexing
     -h, --help
     -V, --version
 
@@ -346,6 +373,10 @@ ARGS:
 * [Git Documentation](https://git-scm.com/docs)
 
 ## Appendix C: Changelog
+
+### v0.2.3 (2026-05-07)
+
+* Added Section 6.5 specifying the `--ssh-multiplexing` / `--no-ssh-multiplexing` toggle, which defaults to disabled and injects an SSH `ControlMaster=no, ControlPath=none` override on every git subprocess to avoid `MaxSessions` saturation and cold-start races at high parallelism
 
 ### v0.2.2 (2026-02-10)
 

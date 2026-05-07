@@ -36,6 +36,17 @@ struct Cli {
     #[arg(long, conflicts_with = "ssh")]
     https: bool,
 
+    /// Enable SSH ControlMaster connection multiplexing (off by default)
+    #[arg(long, overrides_with = "_no_ssh_multiplexing")]
+    ssh_multiplexing: bool,
+
+    #[arg(
+        long = "no-ssh-multiplexing",
+        overrides_with = "ssh_multiplexing",
+        hide = true
+    )]
+    _no_ssh_multiplexing: bool,
+
     /// Number of parallel workers (default: 8, 0 = unlimited)
     #[arg(short = 'n', long, default_value = "8")]
     workers: usize,
@@ -153,7 +164,7 @@ fn main() -> Result<()> {
         None
     };
 
-    let mut ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers, cwd, trace);
+    let mut ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.ssh_multiplexing, cli.workers, cwd, trace);
 
     if cli.dry_run {
         println!(

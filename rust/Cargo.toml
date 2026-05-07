@@ -1,6 +1,6 @@
 [package]
 name = "git-all"
-version = "0.7.0"
+version = "0.7.2-rc.1"
 edition = "2024"
 description = "parallel git across many repositories"
 
