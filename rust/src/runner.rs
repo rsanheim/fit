@@ -82,12 +82,14 @@ fn format_repo_name(name: &str, width: usize) -> String {
 #[derive(Clone, Copy)]
 pub struct GitInvocationOptions {
     pub url_scheme: Option<UrlScheme>,
+    pub ssh_multiplexing: bool,
 }
 
 /// Execution context holding configuration for running git commands
 pub struct ExecutionContext {
     dry_run: bool,
     url_scheme: Option<UrlScheme>,
+    ssh_multiplexing: bool,
     max_connections: usize,
     display_root: PathBuf,
     trace: TraceSink,
@@ -97,6 +99,7 @@ impl ExecutionContext {
     pub fn new(
         dry_run: bool,
         url_scheme: Option<UrlScheme>,
+        ssh_multiplexing: bool,
         max_connections: usize,
         display_root: PathBuf,
         trace: TraceSink,
@@ -104,6 +107,7 @@ impl ExecutionContext {
         Self {
             dry_run,
             url_scheme,
+            ssh_multiplexing,
             max_connections,
             display_root,
             trace,
@@ -117,6 +121,7 @@ impl ExecutionContext {
     pub fn git_invocation_options(&self) -> GitInvocationOptions {
         GitInvocationOptions {
             url_scheme: self.url_scheme,
+            ssh_multiplexing: self.ssh_multiplexing,
         }
     }
 
@@ -167,6 +172,11 @@ impl GitCommand {
             }
         }
 
+        if !opts.ssh_multiplexing {
+            cmd.arg("-c")
+                .arg("core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none");
+        }
+
         cmd.arg("-C")
             .arg(&self.repo_path)
             .args(&self.args)
@@ -184,9 +194,15 @@ impl GitCommand {
             Some(UrlScheme::Https) => "-c \"url.https://github.com/.insteadOf=git@github.com:\" ",
             None => "",
         };
+        let ssh_args = if opts.ssh_multiplexing {
+            ""
+        } else {
+            "-c \"core.sshCommand=ssh -o ControlMaster=no -o ControlPath=none\" "
+        };
         format!(
-            "git {}-C {} {}",
+            "git {}{}-C {} {}",
             scheme_args,
+            ssh_args,
             self.repo_path.display(),
             self.args.join(" ")
         )

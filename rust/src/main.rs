@@ -36,6 +36,20 @@ struct Cli {
     #[arg(long, conflicts_with = "ssh")]
     https: bool,
 
+    /// Enable SSH connection multiplexing (ControlMaster) for git operations.
+    /// Disabled by default to avoid OpenSSH MaxSessions saturation and cold-start
+    /// races when many git subprocesses run in parallel.
+    #[arg(long, overrides_with = "_no_ssh_multiplexing")]
+    ssh_multiplexing: bool,
+
+    /// Negative form of --ssh-multiplexing (the default). Hidden from help.
+    #[arg(
+        long = "no-ssh-multiplexing",
+        overrides_with = "ssh_multiplexing",
+        hide = true
+    )]
+    _no_ssh_multiplexing: bool,
+
     /// Number of parallel workers (default: 8, 0 = unlimited)
     #[arg(short = 'n', long, default_value = "8")]
     workers: usize,
@@ -153,7 +167,7 @@ fn main() -> Result<()> {
         None
     };
 
-    let mut ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.workers, cwd, trace);
+    let mut ctx = ExecutionContext::new(cli.dry_run, url_scheme, cli.ssh_multiplexing, cli.workers, cwd, trace);
 
     if cli.dry_run {
         println!(
