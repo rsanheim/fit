@@ -78,6 +78,12 @@ fn format_repo_name(name: &str, width: usize) -> String {
     format!("[{:<width$}]", display_name, width = width)
 }
 
+/// Cross-cutting options that apply to every git invocation in a run.
+#[derive(Clone, Copy)]
+pub struct GitInvocationOptions {
+    pub url_scheme: Option<UrlScheme>,
+}
+
 /// Execution context holding configuration for running git commands
 pub struct ExecutionContext {
     dry_run: bool,
@@ -112,6 +118,12 @@ impl ExecutionContext {
         self.url_scheme
     }
 
+    pub fn git_invocation_options(&self) -> GitInvocationOptions {
+        GitInvocationOptions {
+            url_scheme: self.url_scheme,
+        }
+    }
+
     pub fn max_connections(&self) -> usize {
         self.max_connections
     }
@@ -142,11 +154,11 @@ impl GitCommand {
 
     /// Spawn the git command without waiting for completion.
     /// Returns immediately with a Child process handle.
-    pub fn spawn(&self, url_scheme: Option<UrlScheme>) -> std::io::Result<std::process::Child> {
+    pub fn spawn(&self, opts: GitInvocationOptions) -> std::io::Result<std::process::Child> {
         let mut cmd = Command::new("git");
 
         // Inject URL scheme override if specified (must come before other args)
-        if let Some(scheme) = url_scheme {
+        if let Some(scheme) = opts.url_scheme {
             match scheme {
                 UrlScheme::Ssh => {
                     cmd.arg("-c")
@@ -170,8 +182,8 @@ impl GitCommand {
     }
 
     /// Build the full command string for display (used in dry-run)
-    pub fn command_string_with_scheme(&self, url_scheme: Option<UrlScheme>) -> String {
-        let scheme_args = match url_scheme {
+    pub fn command_string(&self, opts: GitInvocationOptions) -> String {
+        let scheme_args = match opts.url_scheme {
             Some(UrlScheme::Ssh) => "-c \"url.git@github.com:.insteadOf=https://github.com/\" ",
             Some(UrlScheme::Https) => "-c \"url.https://github.com/.insteadOf=git@github.com:\" ",
             None => "",
@@ -207,13 +219,13 @@ pub fn run_parallel<F>(
 where
     F: Fn(&PathBuf) -> GitCommand + Sync,
 {
-    let url_scheme = ctx.url_scheme();
+    let opts = ctx.git_invocation_options();
     let trace_enabled = ctx.trace_enabled();
 
     if ctx.is_dry_run() {
         for repo in repos {
             let cmd = build_command(repo);
-            println!("{}", cmd.command_string_with_scheme(url_scheme));
+            println!("{}", cmd.command_string(opts));
         }
         return Ok(());
     }
@@ -261,7 +273,7 @@ where
                 } else {
                     None
                 };
-                let spawn_result = cmd.spawn(url_scheme);
+                let spawn_result = cmd.spawn(opts);
                 let spawn_ms = if trace_enabled {
                     Some(run_started_at.elapsed().as_millis())
                 } else {
