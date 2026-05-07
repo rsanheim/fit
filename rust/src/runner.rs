@@ -114,10 +114,6 @@ impl ExecutionContext {
         self.dry_run
     }
 
-    pub fn url_scheme(&self) -> Option<UrlScheme> {
-        self.url_scheme
-    }
-
     pub fn git_invocation_options(&self) -> GitInvocationOptions {
         GitInvocationOptions {
             url_scheme: self.url_scheme,
