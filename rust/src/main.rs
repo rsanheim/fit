@@ -36,9 +36,7 @@ struct Cli {
     #[arg(long, conflicts_with = "ssh")]
     https: bool,
 
-    /// Enable SSH connection multiplexing (ControlMaster) for git operations.
-    /// Disabled by default to avoid OpenSSH MaxSessions saturation and cold-start
-    /// races when many git subprocesses run in parallel.
+    /// Enable SSH ControlMaster connection multiplexing (off by default)
     #[arg(long, overrides_with = "_no_ssh_multiplexing")]
     ssh_multiplexing: bool,
 
