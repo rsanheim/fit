@@ -42,7 +42,6 @@ struct Cli {
     #[arg(long, overrides_with = "_no_ssh_multiplexing")]
     ssh_multiplexing: bool,
 
-    /// Negative form of --ssh-multiplexing (the default). Hidden from help.
     #[arg(
         long = "no-ssh-multiplexing",
         overrides_with = "ssh_multiplexing",
